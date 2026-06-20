@@ -56,6 +56,7 @@
   .btn-ghost{border-color:var(--line);color:var(--ink)}
   .btn-ghost:hover{border-color:rgba(255,255,255,.24);background:var(--bg-2)}
   .cta-row{display:flex;flex-wrap:wrap;gap:13px;align-items:center}
+  .chrome{width:19px;height:19px;display:inline-block;vertical-align:-4px}
 
   /* ---------- hero ---------- */
   .hero{padding:64px 0 50px;position:relative}
@@ -121,9 +122,7 @@
 
   .video-frame{margin-top:36px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#000;box-shadow:0 50px 110px -55px rgba(0,0,0,.95)}
 
-  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px;counter-reset:s}
-  @media(max-width:820px){.steps{grid-template-columns:1fr 1fr}}
-  @media(max-width:500px){.steps{grid-template-columns:1fr}}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:14px;margin-top:40px;counter-reset:s}
   .step{border:1px solid var(--line);border-radius:14px;padding:22px 20px;background:var(--bg-2);position:relative;overflow:hidden}
   .step::before{counter-increment:s;content:"0" counter(s);position:absolute;top:12px;right:15px;font-family:var(--display);font-size:3rem;color:rgba(255,255,255,.055);line-height:1}
   .step .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.25);margin-bottom:15px}
@@ -190,7 +189,7 @@
         <li><span class="dot">📋</span><span>Stop. The bundle's on your <b>clipboard</b> — paste into your AI and go.</span></li>
       </ul>
       <div class="cta-row hero-cta">
-        <a class="btn btn-primary" href="#install">▶ Install — it's free</a>
+        <a class="btn btn-primary" href="#install">Install <svg class="chrome" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 24 4.95 13 A22 22 0 0 1 43.05 13 Z"/><path fill="#FBBC05" d="M24 24 43.05 13 A22 22 0 0 1 24 46 Z"/><path fill="#34A853" d="M24 24 24 46 A22 22 0 0 1 4.95 13 Z"/><circle cx="24" cy="24" r="10.5" fill="#fff"/><circle cx="24" cy="24" r="8" fill="#4285F4"/></svg> Extension</a>
         <a class="btn btn-ghost" href="#demo">Watch the demo</a>
       </div>
       <div class="meta-line">Manifest V3 · <span>No build step</span> · <span>No account</span> · MIT</div>
@@ -240,8 +239,9 @@
 <section id="how">
   <div class="wrap">
     <span class="kicker reveal">How it works</span>
-    <h2 class="reveal">Four steps. Most of it is just talking.</h2>
+    <h2 class="reveal">Install once, then mostly just talk.</h2>
     <div class="steps">
+      <div class="step reveal"><div class="ic" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14)"><svg width="22" height="22" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 24 4.95 13 A22 22 0 0 1 43.05 13 Z"/><path fill="#FBBC05" d="M24 24 43.05 13 A22 22 0 0 1 24 46 Z"/><path fill="#34A853" d="M24 24 24 46 A22 22 0 0 1 4.95 13 Z"/><circle cx="24" cy="24" r="10.5" fill="#fff"/><circle cx="24" cy="24" r="8" fill="#4285F4"/></svg></div><h4>Install Chrome Extension</h4><p>Load it in a minute — free, no account.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#ff453a"/></svg></div><h4>Record</h4><p>Click the icon or hit a hotkey.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><path d="M12 3v9m0 0a3 3 0 003-3V6a3 3 0 00-6 0v3a3 3 0 003 3zM6 11a6 6 0 0012 0M12 18v3"/></svg></div><h4>Talk &amp; point</h4><p>Describe bugs while you click and scroll.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></div><h4>Stop</h4><p>The bundle copies to your clipboard.</p></div>
@@ -284,7 +284,7 @@
     <span class="kicker reveal">Almost, but enough</span>
     <h2 class="reveal">Talk to your AI like it's in the room.</h2>
     <div class="cta-row reveal">
-      <a class="btn btn-primary" href="#install">▶ Install — it's free</a>
+      <a class="btn btn-primary" href="#install">Install <svg class="chrome" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 24 4.95 13 A22 22 0 0 1 43.05 13 Z"/><path fill="#FBBC05" d="M24 24 43.05 13 A22 22 0 0 1 24 46 Z"/><path fill="#34A853" d="M24 24 24 46 A22 22 0 0 1 4.95 13 Z"/><circle cx="24" cy="24" r="10.5" fill="#fff"/><circle cx="24" cy="24" r="8" fill="#4285F4"/></svg> Extension</a>
       <a class="btn btn-ghost" href="https://github.com/JustinWi/almost-video-feedback" target="_blank" rel="noopener">Read the source</a>
     </div>
   </div>
