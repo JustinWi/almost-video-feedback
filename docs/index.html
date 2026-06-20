@@ -69,6 +69,8 @@
   h1{font-family:var(--display);font-weight:400;line-height:1.0;font-size:clamp(2.6rem,6.2vw,4.6rem);margin:24px 0 0;letter-spacing:-.01em}
   .punch{font-family:var(--display);font-size:clamp(2.6rem,6.2vw,4.6rem);line-height:1.0;color:var(--muted)}
   .punch em{font-style:italic;color:var(--rec)}
+  h1 em{font-style:italic;color:var(--rec);font-weight:400}
+  h1 .nowrap{white-space:nowrap}
   /* the 3 bullets that replace the paragraph */
   .bullets{list-style:none;margin:28px 0 0;display:flex;flex-direction:column;gap:14px;max-width:30ch}
   .bullets li{display:flex;gap:12px;align-items:flex-start;font-size:16.5px;line-height:1.4}
@@ -181,8 +183,7 @@
   <div class="wrap hero-grid">
     <div>
       <span class="eyebrow"><span class="rec-dot"></span> Chrome extension · Free · Open source</span>
-      <h1>Record video feedback for your AI</h1>
-      <div class="punch">…<em>almost</em>.</div>
+      <h1>Record video feedback for your <span class="nowrap">AI…<em>almost</em>.</span></h1>
       <ul class="bullets">
         <li><span class="dot">🎙️</span><span><b>Hit record</b> and talk through what's broken — click and scroll as you go.</span></li>
         <li><span class="dot">📸</span><span>It <b>transcribes you</b> and grabs the <b>right screenshots</b> automatically.</span></li>
@@ -282,7 +283,7 @@
 <section class="band">
   <div class="wrap">
     <span class="kicker reveal">Almost, but enough</span>
-    <h2 class="reveal">Talk to your AI like it's in the room.</h2>
+    <h2 class="reveal">Talk to your AI like it's <em>watching</em>.</h2>
     <div class="cta-row reveal">
       <a class="btn btn-primary" href="#install">Install <svg class="chrome" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166a5.446 5.446 0 0 1 1.45 7.09l.002.001h-.002l-5.344 9.257c.206.01.413.016.621.016 6.627 0 12-5.373 12-12 0-1.54-.29-3.011-.818-4.364zM12 16.364a4.364 4.364 0 1 1 0-8.728 4.364 4.364 0 0 1 0 8.728z"/></svg> Extension</a>
       <a class="btn btn-ghost" href="https://github.com/JustinWi/almost-video-feedback" target="_blank" rel="noopener">Read the source</a>
