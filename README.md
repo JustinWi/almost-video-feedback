@@ -1,5 +1,9 @@
 # Almost Video Feedback
 
+> *What if you could record video feedback for your AI? Now you almost can.*
+>
+> **🌐 [Website](https://justinwi.github.io/almost-video-feedback/)  ·  📥 [Install (latest release)](https://github.com/JustinWi/almost-video-feedback/releases/latest)**
+
 A Chrome extension (Manifest V3) for recording **spoken + visual feedback** on a web app and
 handing an AI coding agent (Claude Code, etc.) a single file that says exactly what to fix —
 with screenshots correlated to what you said and did.
