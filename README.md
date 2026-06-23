@@ -92,7 +92,8 @@ icon in the address bar and start again.
 
 Short version: **your recordings stay on your machine.** There is no backend — no servers, accounts,
 or telemetry. The extension makes **no network requests of its own** (independently audited; the only
-`fetch` is of a local `data:` URL).
+`fetch` is of a local `data:` URL). Full
+[privacy policy](https://justinwi.github.io/almost-video-feedback/privacy.html).
 
 - **Where data lives:** screenshots, transcripts, and the bundle are written to your **Downloads**
   folder and the extension's **local storage** (IndexedDB, which keeps your last 40 sessions until you

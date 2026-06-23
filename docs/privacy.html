@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — Almost Video Feedback</title>
+<meta name="description" content="Privacy policy for the Almost Video Feedback Chrome extension. Your recordings stay on your machine; there are no servers." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230c0b0e'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23FF453A'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root{--bg:#0c0b0e;--bg-2:#141318;--ink:#edeae3;--muted:#9b968c;--rec:#ff453a;--mint:#7cf5b0;--line:rgba(255,255,255,.1)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:'Hanken Grotesk',system-ui,sans-serif;line-height:1.65;font-size:16.5px}
+  .wrap{max-width:760px;margin:0 auto;padding:56px 26px 90px}
+  a{color:#9bb4ff} a:hover{color:#c7d2fe}
+  .brand{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:14px;margin-bottom:34px}
+  .dot{width:11px;height:11px;border-radius:50%;background:var(--rec);display:inline-block}
+  h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(2.2rem,5vw,3.2rem);line-height:1.05;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin-top:10px;font-size:14px;font-family:'JetBrains Mono',monospace}
+  .tl{margin-top:30px;border:1px solid rgba(124,245,176,.3);background:linear-gradient(180deg,rgba(124,245,176,.05),transparent);border-radius:14px;padding:20px 22px}
+  .tl b{color:var(--mint)}
+  h2{font-family:'Instrument Serif',serif;font-weight:400;font-size:1.7rem;margin:42px 0 12px;letter-spacing:-.01em}
+  p{margin:12px 0;color:#d8d4cc}
+  ul{margin:12px 0 12px 4px;list-style:none;display:flex;flex-direction:column;gap:10px}
+  li{display:flex;gap:11px;color:#d8d4cc}
+  li::before{content:"";flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--rec);margin-top:10px}
+  code{font-family:'JetBrains Mono',monospace;font-size:.86em;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#e9c8a0}
+  strong{color:var(--ink)}
+  .foot{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);font-size:13.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="brand" href="./index.html"><span class="dot"></span> Almost Video Feedback</a>
+  <h1>Privacy Policy</h1>
+  <div class="sub">Last updated: 23 June 2026</div>
+
+  <div class="tl">
+    <b>In one line:</b> your recordings stay on your computer. Almost Video Feedback has no servers, no accounts, and no analytics — it never sends your data to us, because there is nowhere for it to go.
+  </div>
+
+  <h2>What the extension accesses</h2>
+  <p>When <strong>you start a recording</strong> on a tab, the extension processes, on your device:</p>
+  <ul>
+    <li><strong>Your microphone audio</strong> — to transcribe what you say into text.</li>
+    <li><strong>Screenshots of the tab you are recording</strong> — captured at the moments you click, select, scroll, or trigger them.</li>
+    <li><strong>Page context</strong> — the page URL/title and a short description of the element you clicked or selected (tag, nearby text), so each screenshot is labeled.</li>
+  </ul>
+  <p>It only does this while a recording is active, and only for the tab you chose to record.</p>
+
+  <h2>Where your data goes</h2>
+  <ul>
+    <li><strong>Your Downloads folder</strong> — each recording is written to <code>Downloads/ai-feedback/session-…/</code> as <code>feedback.md</code>, <code>session.json</code>, and the screenshot images.</li>
+    <li><strong>The extension's local storage</strong> — a local library of your recent recordings (kept in the browser's IndexedDB on your machine) and your settings.</li>
+  </ul>
+  <p><strong>Nothing is transmitted to the developer.</strong> There is no backend server, no account, no telemetry, and no advertising. Your bundle leaves your device only if <em>you</em> choose to share a zip.</p>
+
+  <h2>Microphone transcription (important)</h2>
+  <p>Transcription uses Chrome's built-in <strong>Web Speech API</strong>. In Chrome, this means your spoken audio is sent to the browser's speech-recognition service (operated by Google) to be converted to text — the same as using voice typing. This is a browser feature; the extension itself does not transmit your audio anywhere else. Google's handling of that audio is governed by <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's Privacy Policy</a>.</p>
+
+  <h2>What we do <em>not</em> do</h2>
+  <ul>
+    <li>We do not collect, sell, or share your personal data.</li>
+    <li>We do not use analytics, tracking pixels, or fingerprinting.</li>
+    <li>We do not transmit your screenshots, transcripts, or browsing activity to any server we control (we operate none).</li>
+    <li>We do not use your data for anything beyond the extension's single purpose, and never for creditworthiness or lending.</li>
+  </ul>
+
+  <h2>Your control &amp; retention</h2>
+  <p>You are in control of your data. The recordings library keeps your most recent sessions on your device until you remove them — you can delete individual screenshots, delete a recording, or clear the whole library from the extension's Recordings page. Files already written to your Downloads folder remain there until you delete them. Removing the extension removes its local storage.</p>
+
+  <h2>Children</h2>
+  <p>The extension is a developer tool and is not directed to children under 13.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the updated version will be posted at this URL with a new date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or a security concern? Open an issue or a private advisory on the <a href="https://github.com/JustinWi/almost-video-feedback" target="_blank" rel="noopener">GitHub repository</a>. The full source is public and auditable under the MIT License.</p>
+
+  <div class="foot">Almost Video Feedback is open source (MIT). It is not affiliated with Google, Anthropic, or OpenAI.</div>
+</div>
+</body>
+</html>
