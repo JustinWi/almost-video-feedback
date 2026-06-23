@@ -85,6 +85,12 @@ https://justinwi.github.io/almost-video-feedback/privacy.html
 https://justinwi.github.io/almost-video-feedback/
 ```
 
+**Contact / support email** (public, on the listing — distinct from the account you log in with)
+
+```
+help@teachinge.org
+```
+
 ---
 
 ## Permission justifications (the review form asks per item)
@@ -145,12 +151,11 @@ Just upload those. (They're real renders of the extension's UI.)
 | Asset | Size | Status |
 |---|---|---|
 | Store icon | 128×128 | ✅ in package |
-| Screenshots | 1280×800 | ✅ 3 in `docs/store/` |
-| Small promo tile | 440×280 | optional — see below |
-| Marquee promo | 1400×560 | optional — see below |
+| Screenshots (×3) | 1280×800 | ✅ `docs/store/01-…`, `02-…`, `03-…` |
+| Small promo tile | 440×280 | ✅ `docs/store/promo-tile-440x280.png` |
+| Marquee promo | 1400×560 | ✅ `docs/store/marquee-1400x560.png` |
 
-For the optional promo tiles, open `docs/store-assets.html`, set browser zoom to 100%, and screenshot
-the 440×280 / 1400×560 frames.
+**Every store image is ready in [`docs/store/`](store/)** — nothing left to capture.
 
 ---
 
