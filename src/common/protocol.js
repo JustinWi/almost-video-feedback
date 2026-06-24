@@ -6,7 +6,6 @@
  */
 (function (root) {
   'use strict';
-  if (root.SCF) return; // already loaded in this realm
 
   const MSG = {
     // content -> service worker
@@ -62,14 +61,29 @@
     FORCED: 'forced',
   };
 
+  // Priority triggers bypass the dedup cull: deliberate, high-intent actions the
+  // user expects to capture. A click is intentional and often produces a small UI
+  // change the coarse 9x8 dedup hash can't see, so it must never be culled.
+  // (Ambient triggers — dwell/scroll/heartbeat — stay cullable to avoid spam.)
   const PRIORITY_TRIGGERS = new Set([
     TRIGGER.START,
     TRIGGER.NAVIGATION,
     TRIGGER.ROUTE,
+    TRIGGER.CLICK,
     TRIGGER.SELECTION,
     TRIGGER.CIRCLE,
     TRIGGER.FORCED,
   ]);
 
-  root.SCF = { MSG, TRIGGER, PRIORITY_TRIGGERS };
+  // Merge into the shared namespace without clobbering modules that may have
+  // attached first (robust to importScripts/<script> load order).
+  root.SCF = root.SCF || {};
+  root.SCF.MSG = root.SCF.MSG || MSG;
+  root.SCF.TRIGGER = root.SCF.TRIGGER || TRIGGER;
+  root.SCF.PRIORITY_TRIGGERS = root.SCF.PRIORITY_TRIGGERS || PRIORITY_TRIGGERS;
+
+  // Dual-export for Node unit tests (see test/run.cjs).
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { MSG, TRIGGER, PRIORITY_TRIGGERS };
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : self);

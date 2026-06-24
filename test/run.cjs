@@ -8,6 +8,7 @@ const imageHash = require('../src/background/image-hash.js');
 const gesture = require('../src/content/gesture.js');
 const exporter = require('../src/background/exporter.js');
 const zip = require('../src/common/zip.js');
+const protocol = require('../src/common/protocol.js');
 
 let passed = 0;
 let failed = 0;
@@ -83,6 +84,25 @@ test('hammingDistance mismatched/empty => 64', () => {
 test('isDuplicate respects threshold', () => {
   assert.strictEqual(imageHash.isDuplicate('0000000000000003', '0000000000000000', 6), true);
   assert.strictEqual(imageHash.isDuplicate('00000000000000ff', '0000000000000000', 6), false); // 8 bits
+});
+
+console.log('triggers:');
+
+test('click is a priority trigger (a click that changes the UI must never be culled)', () => {
+  // The dedup hash is a 9x8 (64-bit) downscale of the whole screen, so a small but
+  // clearly-visible click change can read as "unchanged" and get dropped. Clicks are
+  // deliberate, high-intent actions -> they must bypass the cull.
+  assert.ok(protocol.PRIORITY_TRIGGERS.has(protocol.TRIGGER.CLICK));
+});
+
+test('priority-trigger contract: intentional triggers bypass cull, ambient ones do not', () => {
+  const P = protocol.PRIORITY_TRIGGERS;
+  for (const t of ['start', 'navigation', 'route', 'click', 'selection', 'circle', 'forced']) {
+    assert.ok(P.has(t), t + ' should bypass the dedup cull');
+  }
+  for (const t of ['dwell', 'scroll', 'heartbeat']) {
+    assert.ok(!P.has(t), t + ' should remain subject to the dedup cull');
+  }
 });
 
 console.log('gesture:');
