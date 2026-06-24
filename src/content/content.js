@@ -29,8 +29,11 @@
     dwellMinMovePx: 120,
     circleMinPathPx: 320,
     circleRatio: 3.2,
+    annotateMode: 'off',
+    annotateColor: '#ff2d95',
     triggers: Object.assign({}, DEFAULT_TRIGGERS),
   };
+  const annotate = self.SCF_ANNOTATE || null;
 
   let recording = false;
   let startedAt = 0;
@@ -42,6 +45,7 @@
   let timerEl = null;
   let shotsEl = null;
   let miniEl = null;
+  let modePickEl = null;
   let timerInt = null;
 
   // overlay UI state
@@ -99,6 +103,45 @@
   function withPage(meta) {
     return Object.assign({ url: location.href, title: document.title }, meta || {});
   }
+
+  // ---- annotation overlay (experimental) ---------------------------------
+  function startAnnotate() {
+    if (!annotate) return;
+    try {
+      annotate.start(cfg.annotateMode || 'off', cfg.annotateColor || '#ff2d95');
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  function stopAnnotate() {
+    if (!annotate) return;
+    try {
+      annotate.stop();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  function applyAnnotateMode(mode) {
+    cfg.annotateMode = mode;
+    if (annotate) {
+      try {
+        annotate.setMode(mode);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    if (modePickEl && modePickEl.value !== mode) modePickEl.value = mode;
+    // persist so the choice sticks into the next recording
+    try {
+      chrome.storage.local.get('settings', (got) => {
+        const s = (got && got.settings) || {};
+        s.annotateMode = mode;
+        chrome.storage.local.set({ settings: s });
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"'`]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c])
@@ -144,6 +187,23 @@
     textEl = document.createElement('div');
     textEl.className = 'text';
 
+    // annotation mode picker — switch live while recording; marks are drawn into
+    // the page so they show up in the screenshots.
+    modePickEl = null;
+    if (annotate && annotate.MODES) {
+      modePickEl = document.createElement('select');
+      modePickEl.className = 'modepick';
+      modePickEl.title = 'Annotation overlay — drawn into the page + screenshots';
+      for (const mo of annotate.MODES) {
+        const opt = document.createElement('option');
+        opt.value = mo.id;
+        opt.textContent = mo.label;
+        modePickEl.appendChild(opt);
+      }
+      modePickEl.value = cfg.annotateMode || 'off';
+      modePickEl.addEventListener('change', () => applyAnnotateMode(modePickEl.value));
+    }
+
     const btns = document.createElement('div');
     btns.className = 'btns';
     const shoot = document.createElement('button');
@@ -164,7 +224,9 @@
     stop.addEventListener('click', () => send({ type: MSG.STOP_RECORDING }));
     btns.append(shoot, mini, stop);
 
-    panelEl.append(grip, sep, textEl, btns);
+    panelEl.append(grip, sep, textEl);
+    if (modePickEl) panelEl.append(modePickEl);
+    panelEl.append(btns);
     shadow.appendChild(panelEl);
     (document.documentElement || document.body).appendChild(hostEl);
 
@@ -186,7 +248,7 @@
 
   function destroyOverlay() {
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
-    hostEl = panelEl = textEl = timerEl = shotsEl = miniEl = null;
+    hostEl = panelEl = textEl = timerEl = shotsEl = miniEl = modePickEl = null;
   }
 
   function panelSize() {
@@ -329,8 +391,11 @@
   function onMouseDown(e) {
     if (!recording || isOurs(e) || e.button !== 0 || !cfg.triggers.click) return;
     const el = dom.describe(e.target) || dom.describeAtPoint(e.clientX, e.clientY, hostEl);
+    // normalized viewport coords so the worker can dedup the area *around* the click
+    const cx = window.innerWidth ? e.clientX / window.innerWidth : 0.5;
+    const cy = window.innerHeight ? e.clientY / window.innerHeight : 0.5;
     setTimeout(() => {
-      if (recording) requestCapture(TRIGGER.CLICK, withPage({ element: el }));
+      if (recording) requestCapture(TRIGGER.CLICK, withPage({ element: el, clickX: cx, clickY: cy }));
     }, cfg.clickCaptureDelayMs);
   }
 
@@ -566,6 +631,7 @@
     lastRouteUrl = location.href;
     recLang = (cfg.language || 'en-US');
     if (cfg.showOverlay !== false) buildOverlay();
+    startAnnotate();
     startTimer();
     startTracking();
     patchHistory();
@@ -579,6 +645,7 @@
     stopRecognizer();
     stopKeepalive();
     stopTracking();
+    stopAnnotate();
     unpatchHistory();
     stopTimer();
     destroyOverlay();

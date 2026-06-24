@@ -16,12 +16,18 @@
   const imageHash = root.SCF.imageHash;
   const store = root.SCF.sessionStore;
 
+  // Grayscale thumbnail size for region-aware click dedup (bigger than the 9x8
+  // dHash so the area around a click is actually resolvable).
+  const THUMB_W = 64;
+  const THUMB_H = 40;
+
   const state = {
     enabled: false,
     busy: false,
     queue: [],
     lastCaptureAt: 0,
     lastKeptHash: null,
+    lastKeptThumb: null, // Uint8Array gray thumbnail of the last kept frame
     seq: 0,
     ctx: null, // { windowId, tabId, settings, lastUrl, lastTitle }
     timer: null,
@@ -38,6 +44,7 @@
     state.queue = [];
     state.lastCaptureAt = 0;
     state.lastKeptHash = null;
+    state.lastKeptThumb = null;
     state.seq = 0;
     state.ctx = ctx;
     state.dir =
@@ -150,14 +157,39 @@
     });
   }
 
-  async function computeHash(blob) {
+  // Decode once, produce both signatures: the 9x8 dHash (whole-frame dedup) and a
+  // larger grayscale thumbnail (region-aware click dedup).
+  async function computeSignature(blob) {
     const bitmap = await createImageBitmap(blob);
-    const canvas = new OffscreenCanvas(imageHash.HASH_W, imageHash.HASH_H);
-    const cctx = canvas.getContext('2d', { willReadFrequently: true });
-    cctx.drawImage(bitmap, 0, 0, imageHash.HASH_W, imageHash.HASH_H);
-    const img = cctx.getImageData(0, 0, imageHash.HASH_W, imageHash.HASH_H);
+    const c1 = new OffscreenCanvas(imageHash.HASH_W, imageHash.HASH_H);
+    const x1 = c1.getContext('2d', { willReadFrequently: true });
+    x1.drawImage(bitmap, 0, 0, imageHash.HASH_W, imageHash.HASH_H);
+    const hash = imageHash.dHash(x1.getImageData(0, 0, imageHash.HASH_W, imageHash.HASH_H));
+
+    const c2 = new OffscreenCanvas(THUMB_W, THUMB_H);
+    const x2 = c2.getContext('2d', { willReadFrequently: true });
+    x2.drawImage(bitmap, 0, 0, THUMB_W, THUMB_H);
+    const thumb = imageHash.toGray(x2.getImageData(0, 0, THUMB_W, THUMB_H));
+
     bitmap.close();
-    return imageHash.dHash(img);
+    return { hash, thumb };
+  }
+
+  // Region-aware "should this click frame be culled?" -> true means cull.
+  // Keep when the area around the click changed OR the whole frame changed a lot;
+  // cull only when essentially nothing changed (a click that did nothing visible).
+  function clickShouldCull(thumb, lastThumb, meta, settings) {
+    if (!thumb || !lastThumb) return false; // no basis to compare -> keep
+    const radius = settings.clickRegionRadius || 9;
+    const eps = settings.clickChangeEps != null ? settings.clickChangeEps : 18;
+    const localT = settings.clickLocalChange != null ? settings.clickLocalChange : 0.04;
+    const globalT = settings.clickGlobalChange != null ? settings.clickGlobalChange : 0.012;
+    const nx = meta && meta.clickX != null ? meta.clickX : 0.5;
+    const ny = meta && meta.clickY != null ? meta.clickY : 0.5;
+    const box = imageHash.regionBox(THUMB_W, THUMB_H, nx, ny, radius);
+    const local = imageHash.changeRatio(thumb, lastThumb, THUMB_W, THUMB_H, box, eps);
+    const global = imageHash.changeRatio(thumb, lastThumb, THUMB_W, THUMB_H, null, eps);
+    return !(local >= localT || global >= globalT);
   }
 
   async function doCapture(req) {
@@ -180,15 +212,28 @@
     const mime = settings.captureFormat === 'jpeg' ? 'image/jpeg' : 'image/png';
     const blob = await (await fetch(dataUrl)).blob();
 
-    // 4) dedup (priority triggers always kept)
+    // 4) dedup
     let hash = null;
+    let thumb = null;
     try {
-      hash = await computeHash(blob);
+      const sig = await computeSignature(blob);
+      hash = sig.hash;
+      thumb = sig.thumb;
     } catch (e) {
-      // if hashing fails, fall through and keep the frame
+      // if signatures fail, fall through and keep the frame
     }
     const threshold = settings.dedupHammingThreshold != null ? settings.dedupHammingThreshold : 6;
-    if (
+
+    if (req.trigger === 'click') {
+      // Clicks are deliberate; how they dedup is configurable.
+      const mode = settings.clickDedup || 'smart';
+      if (mode === 'smart') {
+        if (clickShouldCull(thumb, state.lastKeptThumb, req.meta, settings)) return;
+      } else if (mode === 'global') {
+        if (hash && state.lastKeptHash && imageHash.hammingDistance(state.lastKeptHash, hash) <= threshold) return;
+      }
+      // 'always' -> never culled
+    } else if (
       !req.priority &&
       hash &&
       state.lastKeptHash &&
@@ -208,6 +253,7 @@
     state.seq += 1;
     const seq = state.seq;
     if (hash) state.lastKeptHash = hash;
+    if (thumb) state.lastKeptThumb = thumb;
 
     await store.addScreenshot(seq, blob, mime);
     const meta = req.meta || {};

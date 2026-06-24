@@ -21,6 +21,19 @@
     // Lower threshold = stricter "they look the same" = more aggressive culling.
     dedupHammingThreshold: 6,
 
+    // How click screenshots are deduped:
+    //   'smart'  - keep if the area *around the click* changed OR the page changed
+    //              a lot (catches toggles the coarse dHash misses, culls dead clicks)
+    //   'always' - every click captures (never culled)
+    //   'global' - treat clicks like other frames (whole-screen dHash dedup)
+    clickDedup: 'smart',
+    // 'smart' tunables (biased toward keeping — a missed change is worse than an
+    // extra frame). The box around a click is small/tight so a toggle dominates it.
+    clickRegionRadius: 5, // half-size (in 64x40 thumbnail cells) of the box around a click
+    clickLocalChange: 0.02, // >=2% of the local box changed -> keep
+    clickGlobalChange: 0.008, // >=0.8% of the whole frame changed -> keep
+    clickChangeEps: 16, // 0..255 luminance delta per cell that counts as changed
+
     // Rate limiting / safety
     minCaptureIntervalMs: 650, // captureVisibleTab is browser-capped ~2/s
     maxScreenshots: 300,
@@ -53,6 +66,12 @@
     showOverlay: true,
     // clicking the toolbar icon starts a recording immediately (no popup) when idle
     clickStartsRecording: true,
+
+    // On-page annotation overlay (experimental). Draws into the page so it shows
+    // up in screenshots. Switchable live from the overlay's mode picker.
+    //   'off' | 'comet' | 'glow' | 'pen' | 'autocircle' | 'spotlight' | 'ripple'
+    annotateMode: 'off',
+    annotateColor: '#ff2d95', // neon pink
   };
 
   function deepMerge(base, over) {

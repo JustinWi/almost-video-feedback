@@ -35,11 +35,20 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
   - manually — the **hotkey** or the floating **📸 Shot** button
   - Near-identical frames are culled with a perceptual hash (dHash + Hamming distance). High-intent
     triggers (start, navigation, selection, circling, manual) are never culled.
+  - **Clicks** use a region-aware check: a click is kept when the area *around the pointer* changed
+    (a toggle, a menu) **or** the page changed a lot — and dropped when the click changed nothing.
+    (Switchable to "always capture" or plain whole-screen dedup in Settings.)
 - **Overlay**: a single translucent bar shows the live transcript, elapsed time, a screenshot
-  counter, and Shot / minimize / Stop buttons. It's **draggable** (grab the REC/timer area) and
-  **minimizable** (collapses to a small pill), and its position is remembered. It stays put during
-  captures (no flicker); minimize or move it if you want it out of a screenshot. The canonical
-  "recording" state is also shown in the toolbar badge (a red ●).
+  counter, an **annotation-mode** dropdown (see below), and Shot / minimize / Stop buttons. It's
+  **draggable** (grab the REC/timer area) and **minimizable** (collapses to a small pill), and its
+  position is remembered. It stays put during captures (no flicker); minimize or move it if you want
+  it out of a screenshot. The canonical "recording" state is also shown in the toolbar badge (a red ●).
+- **Pointer annotations** *(experimental)*: optionally draw on the page while you record so the AI
+  can see what you're pointing at — the marks are painted into the page, so they show up in the
+  screenshots. Pick a mode from the overlay dropdown (switchable live): **comet/glow trail** (a neon
+  trail follows the cursor so you can circle things), **pen** (right-drag to draw, double right-click
+  to clear), **auto-circle** (circle the cursor and it draws a ring), **spotlight** (dim everything
+  but the cursor), or **click ripple**. Off by default.
 - **Mic meter**: the popup shows a live microphone level so you can confirm audio is being picked up.
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),
   persisted to IndexedDB as it happens. On stop, each spoken segment is attached to the nearest
@@ -163,8 +172,9 @@ The library keeps the most recent 40 sessions (older ones are pruned automatical
 
 Right-click the extension → **Options** (or the popup's **Settings** link) to tune: whether clicking
 the toolbar icon starts a recording instantly, transcription language, which triggers are active,
-capture format (PNG/JPEG), the dedup aggressiveness, the safety cap, and the timing thresholds for
-scroll/dwell/circle detection.
+capture format (PNG/JPEG), the dedup aggressiveness, how **click** screenshots dedup (smart /
+always / global), the default **pointer-annotation** mode, the safety cap, and the timing thresholds
+for scroll/dwell/circle detection.
 
 ---
 

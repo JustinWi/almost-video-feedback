@@ -54,6 +54,15 @@
           <span class="help">Higher = cull more near-identical frames. Priority triggers (start, navigation, selection, circling, manual) are never culled.</span>
         </div>
         <div class="field">
+          <label for="clickDedup">Click screenshots</label>
+          <select id="clickDedup">
+            <option value="smart">Smart — keep if the area near the click or the page changed</option>
+            <option value="always">Always — every click captures</option>
+            <option value="global">Global — whole-screen dedup like other frames</option>
+          </select>
+          <span class="help">“Smart” catches small changes (a toggle) the whole-screen hash misses, while still dropping clicks that change nothing.</span>
+        </div>
+        <div class="field">
           <label for="maxScreenshots">Max screenshots / session</label>
           <input id="maxScreenshots" type="number" min="10" max="2000" />
         </div>
@@ -84,6 +93,23 @@
       <section>
         <h2>Overlay</h2>
         <label class="inline"><input type="checkbox" id="showOverlay" /> Show the on-page recording overlay (transcript bar + buttons)</label>
+      </section>
+
+      <section>
+        <h2>Pointer annotations <span class="muted">(experimental)</span></h2>
+        <p class="muted">Draw on the page while you record so you can point at things — the marks show up in the screenshots. You can also switch this live from the overlay’s dropdown during a recording.</p>
+        <div class="field">
+          <label for="annotateMode">Default annotation mode</label>
+          <select id="annotateMode">
+            <option value="off">Off</option>
+            <option value="comet">Comet trail — a short neon trail follows the cursor</option>
+            <option value="glow">Glow trail — a longer trail so a full circle stays readable</option>
+            <option value="pen">Pen — right-drag to draw, double right-click to clear</option>
+            <option value="autocircle">Auto-circle — circle the cursor and it draws a ring</option>
+            <option value="spotlight">Spotlight — dim everything except around the cursor</option>
+            <option value="ripple">Click ripple — each click sends out a ring</option>
+          </select>
+        </div>
       </section>
 
       <section>

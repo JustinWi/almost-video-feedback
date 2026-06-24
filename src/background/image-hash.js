@@ -73,6 +73,59 @@
     return hammingDistance(hexA, hexB) <= threshold;
   }
 
+  // ---- region-aware change detection (for click dedup) --------------------
+  // A coarse dHash can't "see" a small UI change (a toggle, a menu) because the
+  // whole screen is squashed to 9x8. So for clicks we keep a slightly larger
+  // grayscale thumbnail and ask two questions: did much of the *page* change, or
+  // did the small area *around the click* change? Either one => keep the frame.
+
+  /**
+   * Flatten an RGBA ImageData-like object to a grayscale Uint8 array (0..255),
+   * one byte per pixel, row-major. Caller resizes to the thumbnail size first.
+   */
+  function toGray(imageData) {
+    const { width, height, data } = imageData;
+    const out = new Uint8Array(width * height);
+    for (let i = 0, p = 0; p < out.length; i += 4, p++) {
+      out[p] = luminance(data[i], data[i + 1], data[i + 2]) | 0;
+    }
+    return out;
+  }
+
+  /**
+   * Fraction (0..1) of cells whose grayscale value moved by more than `eps`,
+   * optionally restricted to a box. `box` is {x0,y0,x1,y1} in cell coords
+   * (x1/y1 exclusive). Mismatched/empty inputs => 1 (treat as fully changed).
+   */
+  function changeRatio(a, b, w, h, box, eps) {
+    if (!a || !b || a.length !== w * h || b.length !== w * h) return 1;
+    const e = eps == null ? 18 : eps;
+    const x0 = box ? Math.max(0, Math.min(w, box.x0 | 0)) : 0;
+    const y0 = box ? Math.max(0, Math.min(h, box.y0 | 0)) : 0;
+    const x1 = box ? Math.max(x0, Math.min(w, box.x1 | 0)) : w;
+    const y1 = box ? Math.max(y0, Math.min(h, box.y1 | 0)) : h;
+    const cells = (x1 - x0) * (y1 - y0);
+    if (cells <= 0) return 0;
+    let changed = 0;
+    for (let y = y0; y < y1; y++) {
+      let i = y * w + x0;
+      for (let x = x0; x < x1; x++, i++) {
+        if (Math.abs(a[i] - b[i]) > e) changed++;
+      }
+    }
+    return changed / cells;
+  }
+
+  /**
+   * A square box (in cell coords) of half-size `radius` centered on a click given
+   * in normalized viewport coords (nx,ny in 0..1). Clamped to the grid.
+   */
+  function regionBox(w, h, nx, ny, radius) {
+    const cx = Math.round((nx || 0) * w);
+    const cy = Math.round((ny || 0) * h);
+    return { x0: cx - radius, y0: cy - radius, x1: cx + radius + 1, y1: cy + radius + 1 };
+  }
+
   const api = {
     HASH_W,
     HASH_H,
@@ -81,6 +134,9 @@
     dHash,
     hammingDistance,
     isDuplicate,
+    toGray,
+    changeRatio,
+    regionBox,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

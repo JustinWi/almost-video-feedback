@@ -7,6 +7,8 @@
     { id: 'captureFormat', path: 'captureFormat', type: 'select' },
     { id: 'jpegQuality', path: 'jpegQuality', type: 'int' },
     { id: 'dedupHammingThreshold', path: 'dedupHammingThreshold', type: 'int' },
+    { id: 'clickDedup', path: 'clickDedup', type: 'select' },
+    { id: 'annotateMode', path: 'annotateMode', type: 'select' },
     { id: 'maxScreenshots', path: 'maxScreenshots', type: 'int' },
     { id: 'minCaptureIntervalMs', path: 'minCaptureIntervalMs', type: 'int' },
     { id: 'heartbeatSeconds', path: 'heartbeatSeconds', type: 'int' },

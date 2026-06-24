@@ -88,21 +88,57 @@ test('isDuplicate respects threshold', () => {
 
 console.log('triggers:');
 
-test('click is a priority trigger (a click that changes the UI must never be culled)', () => {
-  // The dedup hash is a 9x8 (64-bit) downscale of the whole screen, so a small but
-  // clearly-visible click change can read as "unchanged" and get dropped. Clicks are
-  // deliberate, high-intent actions -> they must bypass the cull.
+test('click is a priority trigger (evaluated individually, not coalesced)', () => {
+  // Priority means a click is never collapsed into a neighbouring request and never
+  // hits the blunt whole-frame cull; its own region-aware dedup decides keep/cull.
   assert.ok(protocol.PRIORITY_TRIGGERS.has(protocol.TRIGGER.CLICK));
 });
 
-test('priority-trigger contract: intentional triggers bypass cull, ambient ones do not', () => {
+test('priority-trigger contract: intentional triggers bypass the blunt cull, ambient ones do not', () => {
   const P = protocol.PRIORITY_TRIGGERS;
   for (const t of ['start', 'navigation', 'route', 'click', 'selection', 'circle', 'forced']) {
-    assert.ok(P.has(t), t + ' should bypass the dedup cull');
+    assert.ok(P.has(t), t + ' should bypass the whole-frame cull');
   }
   for (const t of ['dwell', 'scroll', 'heartbeat']) {
-    assert.ok(!P.has(t), t + ' should remain subject to the dedup cull');
+    assert.ok(!P.has(t), t + ' should remain subject to the whole-frame cull');
   }
+});
+
+console.log('region dedup:');
+
+test('toGray flattens RGBA to luminance bytes', () => {
+  const data = Uint8ClampedArray.from([255, 255, 255, 255, 0, 0, 0, 255]);
+  const g = imageHash.toGray({ width: 2, height: 1, data });
+  assert.strictEqual(g[0], 255);
+  assert.strictEqual(g[1], 0);
+});
+
+test('changeRatio: identical => 0, mismatched length => 1', () => {
+  const a = new Uint8Array(16).fill(100);
+  const b = new Uint8Array(16).fill(100);
+  assert.strictEqual(imageHash.changeRatio(a, b, 4, 4, null, 18), 0);
+  assert.strictEqual(imageHash.changeRatio(a, new Uint8Array(9), 4, 4, null, 18), 1);
+});
+
+test('changeRatio: respects eps and counts changed cells globally', () => {
+  const a = new Uint8Array(16).fill(100);
+  const b = new Uint8Array(16).fill(100);
+  b[5] = 200; // one cell, delta 100
+  assert.strictEqual(imageHash.changeRatio(a, b, 4, 4, null, 18), 1 / 16);
+  assert.strictEqual(imageHash.changeRatio(a, b, 4, 4, null, 150), 0); // below eps
+});
+
+test('changeRatio: a box isolates a local change the global ratio barely sees', () => {
+  const a = new Uint8Array(16).fill(100);
+  const b = new Uint8Array(16).fill(100);
+  b[5] = 200; // cell at (x=1,y=1)
+  const box = imageHash.regionBox(4, 4, 0.25, 0.25, 0); // centered on (1,1), 1 cell
+  assert.strictEqual(imageHash.changeRatio(a, b, 4, 4, box, 18), 1); // 100% of the box
+  assert.ok(imageHash.changeRatio(a, b, 4, 4, null, 18) < 0.1); // tiny globally
+});
+
+test('regionBox centers a square of half-size radius on the click', () => {
+  assert.deepStrictEqual(imageHash.regionBox(64, 40, 0.5, 0.5, 9), { x0: 23, y0: 11, x1: 42, y1: 30 });
 });
 
 console.log('gesture:');
