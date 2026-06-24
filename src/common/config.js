@@ -51,6 +51,8 @@
 
     // UI
     showOverlay: true,
+    // clicking the toolbar icon starts a recording immediately (no popup) when idle
+    clickStartsRecording: true,
   };
 
   function deepMerge(base, over) {

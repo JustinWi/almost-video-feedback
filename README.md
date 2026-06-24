@@ -116,7 +116,9 @@ or telemetry. The extension makes **no network requests of its own** (independen
 ## Using it
 
 1. Open the tab you want to review (any normal `http`/`https` page, including `localhost`).
-2. Click the toolbar button → **Start recording** (or press the hotkey).
+2. Click the toolbar button — by default it **starts recording immediately** (no menu), so you're
+   talking in one click. (Prefer to see the menu first? Turn off *"Clicking the toolbar icon starts
+   a recording"* in Settings.) You can also press the hotkey.
 3. Talk through your feedback while you interact with the page. A translucent bar at the bottom
    shows the live transcript and flashes "📸 Screenshot N" when one is captured.
 4. Press the hotkey or the **📸 Shot** button any time you want to force a capture.
@@ -159,9 +161,10 @@ The library keeps the most recent 40 sessions (older ones are pruned automatical
 
 ### Settings
 
-Right-click the extension → **Options** (or the popup's **Settings** link) to tune: transcription
-language, which triggers are active, capture format (PNG/JPEG), the dedup aggressiveness, the safety
-cap, and the timing thresholds for scroll/dwell/circle detection.
+Right-click the extension → **Options** (or the popup's **Settings** link) to tune: whether clicking
+the toolbar icon starts a recording instantly, transcription language, which triggers are active,
+capture format (PNG/JPEG), the dedup aggressiveness, the safety cap, and the timing thresholds for
+scroll/dwell/circle detection.
 
 ---
 

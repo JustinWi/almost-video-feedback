@@ -17,6 +17,7 @@
     { id: 'circleMinPathPx', path: 'circleMinPathPx', type: 'int' },
     { id: 'circleRatio', path: 'circleRatio', type: 'float' },
     { id: 'showOverlay', path: 'showOverlay', type: 'checkbox' },
+    { id: 'clickStartsRecording', path: 'clickStartsRecording', type: 'checkbox' },
     { id: 't_start', path: 'triggers.start', type: 'checkbox' },
     { id: 't_navigation', path: 'triggers.navigation', type: 'checkbox' },
     { id: 't_route', path: 'triggers.route', type: 'checkbox' },

@@ -27,6 +27,7 @@ let creatingOffscreen = null;
 // (which arrives a few hundred ms after we stop recognition) is still recorded.
 let transcriptOpen = false;
 let stopping = false; // true while a stop is saving/exporting (popup shows "Saving…")
+let starting = false; // true between a start request and session becoming active (debounces icon double-clicks)
 let recoverPromise = null; // resolves once mid-session state has been restored
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -95,6 +96,27 @@ function openPopup() {
     if (chrome.action.openPopup) chrome.action.openPopup().catch(() => {});
   } catch (e) {
     /* not available / no focused window */
+  }
+}
+
+// Click-to-record: when the setting is on and we're idle, clear the action popup
+// so a click fires chrome.action.onClicked (which starts recording immediately).
+// While recording (or when the setting is off) the popup is restored, so a click
+// opens it as usual.
+async function applyActionMode() {
+  let clickStarts = true;
+  try {
+    const s = await self.SCF_CONFIG.load();
+    clickStarts = s.clickStartsRecording !== false;
+  } catch (e) {
+    /* default true */
+  }
+  const recording = !!(session && session.active);
+  const popup = clickStarts && !recording ? '' : 'src/popup/popup.html';
+  try {
+    await chrome.action.setPopup({ popup });
+  } catch (e) {
+    /* ignore */
   }
 }
 
@@ -167,7 +189,8 @@ async function ensureContentScript(tabId) {
 // ------------------------------------------------------------ session flow
 
 async function startRecording(requestedTabId) {
-  if (session && session.active) return statePayload();
+  if (starting || (session && session.active)) return statePayload();
+  starting = true;
 
   let tab;
   if (requestedTabId != null) {
@@ -177,6 +200,7 @@ async function startRecording(requestedTabId) {
     tab = tabs[0];
   }
   if (!tab || !capturable(tab.url)) {
+    starting = false;
     broadcast({ type: MSG.STATUS, state: statePayload(), error: 'This page can\'t be recorded (try a normal http/https tab).' });
     return statePayload();
   }
@@ -194,6 +218,7 @@ async function startRecording(requestedTabId) {
     windowId: tab.windowId,
     settings,
   };
+  starting = false; // session.active now guards re-entry; don't leave this stuck if a later await throws
   await store.setMeta({
     active: true,
     startedAt,
@@ -213,16 +238,18 @@ async function startRecording(requestedTabId) {
   self.SCF.downloads.setDownloadUi(false);
 
   setBadge('recording');
+  applyActionMode(); // recording -> icon click opens the popup (which stops)
+  ensureOffscreen(); // pre-warm the clipboard doc so the save is instant (no await)
 
   if (settings.triggers.heartbeat) {
     chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, settings.heartbeatSeconds / 60) });
   }
 
-  // Transcription runs in the content script (Web Speech doesn't work in an
-  // offscreen document). The offscreen doc is created lazily at stop for the
-  // clipboard write.
-  await ensureContentScript(tab.id);
+  // Arm the (usually already-injected) content script immediately so the overlay
+  // appears instantly; inject in the background for tabs that predate the
+  // extension (their CONTENT_READY re-arms them). Don't block start on injection.
   notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings, startedAt });
+  ensureContentScript(tab.id);
 
   if (settings.triggers.start) {
     capture.request(TRIGGER.START, { url: tab.url, title: tab.title });
@@ -250,7 +277,7 @@ async function stopRecording(opts) {
   // Ask the recognizer iframe to flush its final segment (transcriptOpen keeps
   // handleTranscript writing it), then tear down the overlay + iframe.
   broadcast({ type: MSG.RECOGNIZER_STOP });
-  await delay(800);
+  await delay(500);
   transcriptOpen = false;
   notifyContent(s.tabId, { type: MSG.SESSION_STOPPED });
 
@@ -327,6 +354,7 @@ async function stopRecording(opts) {
   setBadge('idle');
   session = null;
   stopping = false;
+  applyActionMode(); // idle -> clicking the icon starts the next recording
 
   // in-page toast so the user knows it's ready even if the popup didn't open /
   // the extension isn't pinned
@@ -417,6 +445,17 @@ async function followFocus() {
 chrome.tabs.onActivated.addListener(scheduleFollowFocus);
 chrome.windows.onFocusChanged.addListener((winId) => {
   if (winId !== chrome.windows.WINDOW_ID_NONE) scheduleFollowFocus();
+});
+
+// click-to-record: only fires when the popup is empty (fast mode + idle)
+chrome.action.onClicked.addListener(async () => {
+  if (recoverPromise) await recoverPromise;
+  if (!(session && session.active)) startRecording();
+});
+
+// re-apply the action mode when the setting changes from the options page
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) applyActionMode();
 });
 
 // --------------------------------------------------------------- messaging
@@ -601,8 +640,11 @@ async function recover() {
 
 chrome.runtime.onStartup.addListener(() => {
   recoverPromise = recover();
+  recoverPromise.then(applyActionMode);
 });
 chrome.runtime.onInstalled.addListener(() => {
   setBadge('idle');
+  applyActionMode();
 });
 recoverPromise = recover();
+recoverPromise.then(applyActionMode);
