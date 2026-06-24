@@ -54,7 +54,6 @@
     70%  { box-shadow: 0 0 0 9px rgba(244,63,94,0); }
     100% { box-shadow: 0 0 0 0 rgba(244,63,94,0); }
   }
-  .timer { font-variant-numeric: tabular-nums; font-size: 12.5px; opacity: .9; }
   .shots { font-size: 11.5px; opacity: .75; }
 
   .sep { width:1px; height:22px; background: rgba(255,255,255,.14); flex:0 0 auto; }

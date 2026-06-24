@@ -38,9 +38,9 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
   - **Clicks** use a region-aware check: a click is kept when the area *around the pointer* changed
     (a toggle, a menu) **or** the page changed a lot — and dropped when the click changed nothing.
     (Switchable to "always capture" or plain whole-screen dedup in Settings.)
-- **Overlay**: a single translucent bar shows the live transcript, elapsed time, a screenshot
+- **Overlay**: a single translucent bar shows the live transcript, a screenshot
   counter, and Shot / minimize / Stop buttons (plus a **⌫** clear button while a drawing is present). It's
-  **draggable** (grab the REC/timer area) and **minimizable** (collapses to a small pill), and its
+  **draggable** (grab the REC area) and **minimizable** (collapses to a small pill), and its
   position is remembered. It stays put during captures (no flicker); minimize or move it if you want
   it out of a screenshot. The canonical "recording" state is also shown in the toolbar badge (a red ●).
 - **On-page drawing** (telestrator): on by default — **right-click and drag** to draw on the page in

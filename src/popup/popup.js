@@ -4,7 +4,6 @@
   const $ = (id) => document.getElementById(id);
 
   let state = { recording: false, screenshots: 0, startedAt: null, lastResult: null };
-  let timerInt = null;
   let lastError = '';
   let recentCount = 0;
   const store = self.SCF && self.SCF.sessionStore;
@@ -98,24 +97,6 @@
   window.addEventListener('pagehide', stopMeter);
   window.addEventListener('unload', stopMeter);
 
-  function fmtTime(ms) {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  }
-
-  function startTimer() {
-    stopTimer();
-    timerInt = setInterval(() => {
-      if (state.recording && state.startedAt) {
-        $('timer').textContent = fmtTime(Date.now() - state.startedAt);
-      }
-    }, 500);
-  }
-  function stopTimer() {
-    if (timerInt) clearInterval(timerInt);
-    timerInt = null;
-  }
-
   function render() {
     const pill = $('state-pill');
     const primary = $('primary');
@@ -135,7 +116,6 @@
       $('force').hidden = false;
       $('result').hidden = true;
       $('recent').hidden = true;
-      startTimer();
     } else if (state.saving) {
       pill.className = 'pill saving';
       pill.textContent = 'Saving';
@@ -146,7 +126,6 @@
       primary.className = 'primary';
       primary.disabled = true;
       $('force').hidden = true;
-      stopTimer();
     } else {
       pill.className = 'pill idle';
       pill.textContent = 'Idle';
@@ -155,7 +134,6 @@
       primary.className = 'primary';
       primary.disabled = false;
       $('force').hidden = true;
-      stopTimer();
       renderResult();
       $('recent').hidden = recentCount === 0;
     }

@@ -37,17 +37,14 @@
   let annotateCaptureTimer = null;
 
   let recording = false;
-  let startedAt = 0;
 
   // overlay refs
   let hostEl = null;
   let panelEl = null;
   let textEl = null;
-  let timerEl = null;
   let shotsEl = null;
   let miniEl = null;
   let clearInkEl = null;
-  let timerInt = null;
 
   // overlay UI state
   let shotCount = 0;
@@ -168,13 +165,10 @@
     const recLabel = document.createElement('span');
     recLabel.className = 'reclabel';
     recLabel.textContent = 'REC';
-    timerEl = document.createElement('span');
-    timerEl.className = 'timer';
-    timerEl.textContent = '0:00';
     shotsEl = document.createElement('span');
     shotsEl.className = 'shots';
     shotsEl.textContent = '📸 0';
-    grip.append(dot, recLabel, timerEl, shotsEl);
+    grip.append(dot, recLabel, shotsEl);
 
     const sep = document.createElement('div');
     sep.className = 'sep';
@@ -239,7 +233,7 @@
 
   function destroyOverlay() {
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
-    hostEl = panelEl = textEl = timerEl = shotsEl = miniEl = clearInkEl = null;
+    hostEl = panelEl = textEl = shotsEl = miniEl = clearInkEl = null;
   }
 
   function panelSize() {
@@ -352,18 +346,6 @@
     textEl.scrollTop = textEl.scrollHeight;
   }
 
-  function startTimer() {
-    stopTimer();
-    timerInt = setInterval(() => {
-      if (!timerEl) return;
-      const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-      timerEl.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    }, 500);
-  }
-  function stopTimer() {
-    if (timerInt) clearInterval(timerInt);
-    timerInt = null;
-  }
 
   // --------------------------------------------------------------- tracking
 
@@ -612,7 +594,6 @@
       cfg.triggers = Object.assign({}, DEFAULT_TRIGGERS, msg.settings.triggers || {});
     }
     recording = true;
-    startedAt = msg.startedAt || Date.now();
     finalText = '';
     interimText = '';
     micErrorMsg = '';
@@ -623,7 +604,6 @@
     recLang = (cfg.language || 'en-US');
     if (cfg.showOverlay !== false) buildOverlay();
     startAnnotate();
-    startTimer();
     startTracking();
     patchHistory();
     startRecognizer();
@@ -638,7 +618,6 @@
     stopTracking();
     stopAnnotate();
     unpatchHistory();
-    stopTimer();
     destroyOverlay();
     finalText = '';
     interimText = '';
