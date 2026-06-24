@@ -96,7 +96,7 @@ test('click is a priority trigger (evaluated individually, not coalesced)', () =
 
 test('priority-trigger contract: intentional triggers bypass the blunt cull, ambient ones do not', () => {
   const P = protocol.PRIORITY_TRIGGERS;
-  for (const t of ['start', 'navigation', 'route', 'click', 'selection', 'circle', 'forced']) {
+  for (const t of ['start', 'navigation', 'route', 'click', 'selection', 'circle', 'forced', 'annotate']) {
     assert.ok(P.has(t), t + ' should bypass the whole-frame cull');
   }
   for (const t of ['dwell', 'scroll', 'heartbeat']) {

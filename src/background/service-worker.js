@@ -339,8 +339,10 @@ async function stopRecording(opts) {
   }
 
   lastResult = {
+    id: String(meta.startedAt),
     mdPath: written.mdPath,
     folderPath: written.folderPath,
+    dir: written.dir,
     clip,
     screenshots: bundle.screenshots.length,
     transcriptSegments: transcriptCount,
@@ -361,6 +363,60 @@ async function stopRecording(opts) {
   broadcastStatus();
   broadcast({ type: 'export_done', result: lastResult });
   return lastResult;
+}
+
+// Discard a recording: remove it from the library (IndexedDB) and best-effort
+// delete the files it wrote to the Downloads folder.
+async function discardRecording(id) {
+  if (!id) return false;
+  let rec = null;
+  try {
+    rec = await store.getHistory(id);
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    await store.deleteHistory(id); // removes the record + its archived screenshots
+  } catch (e) {
+    /* ignore */
+  }
+  await deleteDownloadedFiles(rec && (rec.dir || rec.folderPath));
+  if (lastResult && lastResult.id === id) {
+    lastResult = null;
+    try {
+      await chrome.storage.local.set({ lastResult: null });
+    } catch (e) {
+      /* ignore */
+    }
+    broadcastStatus();
+  }
+  return true;
+}
+
+// Delete the screenshots + feedback.md/json this session wrote to Downloads.
+async function deleteDownloadedFiles(dir) {
+  if (!dir) return;
+  const seg = String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop(); // session-YYYYMMDD-HHMMSS
+  if (!seg) return;
+  let items = [];
+  try {
+    items = await chrome.downloads.search({ query: [seg] });
+  } catch (e) {
+    return;
+  }
+  for (const it of items || []) {
+    if (!it || !it.filename || it.filename.replace(/\\/g, '/').indexOf(seg) === -1) continue;
+    try {
+      await chrome.downloads.removeFile(it.id); // delete the file from disk
+    } catch (e) {
+      /* already moved/deleted */
+    }
+    try {
+      await chrome.downloads.erase({ id: it.id }); // drop it from the downloads list
+    } catch (e) {
+      /* ignore */
+    }
+  }
 }
 
 async function toggleRecording() {
@@ -510,6 +566,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case MSG.FORCE_SHOT:
       if (session && session.active) capture.request(TRIGGER.FORCED, {});
       return false;
+
+    case MSG.DELETE_RECORDING:
+      (async () => {
+        const ok = await discardRecording(msg.id);
+        sendResponse({ ok });
+      })();
+      return true;
 
     // ---- from content scripts ----
     case MSG.CONTENT_READY:

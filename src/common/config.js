@@ -67,11 +67,11 @@
     // clicking the toolbar icon starts a recording immediately (no popup) when idle
     clickStartsRecording: true,
 
-    // On-page annotation overlay (experimental). Draws into the page so it shows
-    // up in screenshots. Switchable live from the overlay's mode picker.
-    //   'off' | 'comet' | 'glow' | 'pen' | 'autocircle' | 'spotlight' | 'ripple'
-    annotateMode: 'off',
-    annotateColor: '#ff2d95', // neon pink
+    // On-page drawing while recording: right-drag (Control-click + drag on Mac) to
+    // draw on the page so you can point at things — the marks land in the
+    // screenshots. On by default; turn off here. Drawn in neon pink.
+    annotate: true,
+    annotateColor: '#ff2d95',
   };
 
   function deepMerge(base, over) {

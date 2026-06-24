@@ -220,6 +220,32 @@
     if (id) url += '?id=' + encodeURIComponent(id);
     chrome.tabs.create({ url });
   }
+  // two-step confirm so a stray click can't delete a recording
+  function armConfirm(btn, confirmLabel, onConfirm) {
+    if (btn.dataset.armed === '1') {
+      clearTimeout(+btn.dataset.timer);
+      btn.dataset.armed = '0';
+      onConfirm();
+      return;
+    }
+    const orig = btn.textContent;
+    btn.dataset.armed = '1';
+    btn.textContent = confirmLabel;
+    btn.classList.add('armed');
+    btn.dataset.timer = String(setTimeout(() => {
+      btn.dataset.armed = '0';
+      btn.textContent = orig;
+      btn.classList.remove('armed');
+    }, 2600));
+  }
+  async function deleteRecording(id) {
+    await send({ type: MSG.DELETE_RECORDING, id });
+    if (state.lastResult && state.lastResult.id === id) {
+      state.lastResult = null;
+      $('result').hidden = true;
+    }
+    loadRecent();
+  }
   async function copyRecent(rec, btn) {
     try {
       await navigator.clipboard.writeText(clipFor(rec));
@@ -251,7 +277,9 @@
         : '<div class="rc-thumb rc-ph"><span class="rc-recdot"></span></div>') +
       '<div class="rc-meta"><div class="rc-when">' + esc(shortWhen(rec)) + '</div>' +
       '<div class="rc-sub">' + esc(recSub(rec)) + '</div></div>' +
-      '<div class="rc-actions"><button class="rc-btn rc-copy" title="Copy prompt for this recording">📋</button></div>';
+      '<div class="rc-actions">' +
+      '<button class="rc-btn rc-copy" title="Copy prompt for this recording">📋</button>' +
+      '<button class="rc-btn rc-del" title="Delete this recording">🗑</button></div>';
     card.addEventListener('click', (e) => {
       if (e.target.closest('.rc-actions')) return;
       openRecordings(rec.id);
@@ -259,6 +287,10 @@
     card.querySelector('.rc-copy').addEventListener('click', (e) => {
       e.stopPropagation();
       copyRecent(rec, e.currentTarget);
+    });
+    card.querySelector('.rc-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      armConfirm(e.currentTarget, '✓?', () => deleteRecording(rec.id));
     });
     return card;
   }
@@ -330,6 +362,11 @@
     const orig = btn.textContent;
     btn.textContent = '✓ Copied';
     setTimeout(() => (btn.textContent = orig), 1400);
+  });
+  $('discard').addEventListener('click', (e) => {
+    const id = state.lastResult && state.lastResult.id;
+    if (!id) return;
+    armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
   $('recordings').addEventListener('click', () => openRecordings());
   $('view').addEventListener('click', () => openRecordings());

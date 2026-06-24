@@ -1,59 +1,47 @@
 /*
- * On-page annotation overlay (experimental). A full-viewport canvas painted into
- * the page so the marks show up in the screenshots, with several switchable
- * "modes" for calling out areas while you talk. Classic content script ->
- * globalThis.SCF_ANNOTATE. content.js starts/stops it and switches the mode.
+ * On-page drawing while recording (a telestrator). A full-viewport canvas painted
+ * into the page so the marks show up in the screenshots. Classic content script
+ * -> globalThis.SCF_ANNOTATE.
  *
- * The canvas is pointer-events:none (never blocks the page); we read mouse
- * positions from document listeners. Pen mode is the one exception — it
- * suppresses the context menu so a right-drag can draw.
+ * Draw: hold the secondary mouse button and drag.
+ *   - Windows/Linux: right-button drag.
+ *   - macOS: Control-click + drag (two-finger trackpad drag is reserved for
+ *     scrolling, so we use Control-click, which is the Mac "secondary click").
+ * A plain secondary click is left alone, so the page's normal context menu still
+ * works. Double secondary-click clears the drawing; so does clear().
  *
- * Modes (all variations on "let me point at things"):
- *   off        - nothing
- *   comet      - short neon trail that follows the cursor (~0.8s fade)
- *   glow       - longer, thicker trail (~2.4s) so a full circle stays readable
- *   pen        - right-drag draws persistent strokes; double-right-click clears
- *   autocircle - circle the cursor and it draws a fading ring around that area
- *   spotlight  - dims the page except a soft circle around the cursor
- *   ripple     - each left-click emits an expanding ring where you clicked
+ * The canvas is pointer-events:none and never blocks the page — we read the mouse
+ * from document listeners and only suppress the context menu while actually drawing
+ * (or on the 2nd click of a clear).
  */
 (function () {
   'use strict';
 
-  const MODES = [
-    { id: 'off', label: 'Annotate: off' },
-    { id: 'comet', label: 'Comet trail' },
-    { id: 'glow', label: 'Glow trail' },
-    { id: 'pen', label: 'Pen (right-drag)' },
-    { id: 'autocircle', label: 'Auto-circle' },
-    { id: 'spotlight', label: 'Spotlight' },
-    { id: 'ripple', label: 'Click ripple' },
-  ];
-  const MODE_IDS = MODES.map((m) => m.id);
+  const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+  const SECONDARY_LABEL = IS_MAC ? 'Control-click' : 'right-click';
+  const DRAG_PX = 8; // movement beyond this is a draw, not a click
+  const DOUBLE_MS = 450; // window for a double secondary-click -> clear
 
   let host = null;
+  let shadow = null;
   let canvas = null;
   let ctx = null;
   let dpr = 1;
 
-  let mode = 'off';
   let running = false;
-  let rafId = null;
   let color = '#ff2d95';
+  let rafId = null;
 
-  // per-mode buffers
-  let trail = []; // {x,y,t}
-  let strokes = []; // [[{x,y}...]] persistent pen strokes
+  let strokes = []; // committed: [[{x,y}...]]
   let curStroke = null;
-  let circles = []; // {x,y,rx,ry,t}
-  let ripples = []; // {x,y,t}
-  const cursor = { x: -1, y: -1, seen: false };
-
-  // autocircle + pen bookkeeping
-  let moveBuf = [];
-  let lastCircleAt = 0;
   let rightMoved = 0;
-  const DRAG_PX = 8; // right-movement beyond this counts as a draw, not a click
+  let lastMenuAt = 0; // timestamp of the last plain secondary-click (for double-click)
+
+  let hintEl = null;
+  let hintTimer = null;
+
+  let onInk = null; // (hasInk:boolean) => void
+  let onDraw = null; // () => void, a stroke was just committed
 
   const nowMs = () => performance.now();
   const handlers = [];
@@ -73,14 +61,11 @@
     handlers.length = 0;
   }
 
-  function resetBuffers() {
-    trail = [];
-    strokes = [];
-    curStroke = null;
-    circles = [];
-    ripples = [];
-    moveBuf = [];
-    rightMoved = 0;
+  function isSecondaryDown(e) {
+    return e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey);
+  }
+  function secondaryHeld(e) {
+    return (e.buttons & 2) !== 0 || (IS_MAC && (e.buttons & 1) !== 0 && e.ctrlKey);
   }
 
   // ------------------------------------------------------------- canvas setup
@@ -88,14 +73,20 @@
   function sizeCanvas() {
     if (!canvas) return;
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width = Math.max(1, Math.round(w * dpr));
-    canvas.height = Math.max(1, Math.round(h * dpr));
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+    canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+    canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scheduleRender();
   }
+
+  const HINT_CSS =
+    '.scf-hint{position:absolute;transform:translate(-50%,-100%);padding:5px 10px;border-radius:8px;' +
+    'background:rgba(17,24,39,.92);color:#fff;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,' +
+    '"Segoe UI",Roboto,Helvetica,Arial,sans-serif;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.4);' +
+    'border:1px solid rgba(255,45,149,.55);opacity:0;transition:opacity .25s ease;pointer-events:none;}' +
+    '.scf-hint.in{opacity:1;}';
 
   function ensureHost() {
     if (host) return;
@@ -104,75 +95,26 @@
     host.style.cssText =
       'all:initial;position:fixed;left:0;top:0;width:100%;height:100%;margin:0;padding:0;' +
       'pointer-events:none;z-index:2147483646;';
-    const sh = host.attachShadow({ mode: 'open' });
+    shadow = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = HINT_CSS;
+    shadow.appendChild(style);
     canvas = document.createElement('canvas');
     canvas.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;display:block;';
-    sh.appendChild(canvas);
+    shadow.appendChild(canvas);
     (document.documentElement || document.body).appendChild(host);
     ctx = canvas.getContext('2d');
     sizeCanvas();
   }
 
-  // ----------------------------------------------------------------- drawing
+  // --------------------------------------------------------------- rendering
 
-  function loop() {
-    if (!running || mode === 'off') {
+  function scheduleRender() {
+    if (!running || rafId) return;
+    rafId = requestAnimationFrame(() => {
       rafId = null;
-      return;
-    }
-    render();
-    rafId = requestAnimationFrame(loop);
-  }
-
-  function kick() {
-    if (running && mode !== 'off' && !rafId) rafId = requestAnimationFrame(loop);
-  }
-
-  function render() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const t = nowMs();
-    ctx.clearRect(0, 0, w, h);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    if (mode === 'spotlight') renderSpotlight(w, h);
-    else if (mode === 'comet' || mode === 'glow') renderTrail(t);
-    else if (mode === 'pen') renderStrokes();
-    else if (mode === 'autocircle') renderCircles(t);
-    else if (mode === 'ripple') renderRipples(t);
-  }
-
-  function renderTrail(t) {
-    const life = mode === 'glow' ? 2400 : 800;
-    const baseW = mode === 'glow' ? 11 : 6;
-    const glow = mode === 'glow' ? 18 : 10;
-    while (trail.length && t - trail[0].t > life) trail.shift();
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    for (let i = 1; i < trail.length; i++) {
-      const p0 = trail[i - 1];
-      const p1 = trail[i];
-      const a = Math.max(0, 1 - (t - p1.t) / life);
-      ctx.globalAlpha = a;
-      ctx.lineWidth = baseW * (0.35 + 0.65 * a);
-      ctx.shadowBlur = glow * a;
-      ctx.beginPath();
-      ctx.moveTo(p0.x, p0.y);
-      ctx.lineTo(p1.x, p1.y);
-      ctx.stroke();
-    }
-    // bright head
-    if (trail.length) {
-      const head = trail[trail.length - 1];
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = glow;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(head.x, head.y, mode === 'glow' ? 4 : 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+      render();
+    });
   }
 
   function strokePath(points) {
@@ -180,7 +122,6 @@
     if (points.length === 1) {
       ctx.beginPath();
       ctx.arc(points[0].x, points[0].y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
       ctx.fill();
       return;
     }
@@ -190,171 +131,152 @@
     ctx.stroke();
   }
 
-  function renderStrokes() {
+  function render() {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = 4;
     ctx.shadowColor = color;
     ctx.shadowBlur = 12;
-    ctx.globalAlpha = 1;
     for (const s of strokes) strokePath(s);
     if (curStroke) strokePath(curStroke);
     ctx.shadowBlur = 0;
   }
 
-  function renderCircles(t) {
-    const life = 2400;
-    circles = circles.filter((c) => t - c.t < life);
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.lineWidth = 4;
-    for (const c of circles) {
-      const a = Math.max(0, 1 - (t - c.t) / life);
-      const grow = 1 + 0.08 * (1 - a);
-      ctx.globalAlpha = a;
-      ctx.shadowBlur = 14 * a;
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y, c.rx * grow, c.ry * grow, 0, 0, Math.PI * 2);
-      ctx.stroke();
+  // ------------------------------------------------------------------- hint
+
+  function hideHint() {
+    if (hintTimer) {
+      clearTimeout(hintTimer);
+      hintTimer = null;
     }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    if (hintEl && hintEl.parentNode) hintEl.parentNode.removeChild(hintEl);
+    hintEl = null;
   }
 
-  function renderRipples(t) {
-    const life = 720;
-    ripples = ripples.filter((r) => t - r.t < life);
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    for (const r of ripples) {
-      const k = (t - r.t) / life;
-      const a = Math.max(0, 1 - k);
-      ctx.globalAlpha = a;
-      ctx.lineWidth = 3;
-      ctx.shadowBlur = 12 * a;
-      ctx.beginPath();
-      ctx.arc(r.x, r.y, 12 + 52 * k, 0, Math.PI * 2);
-      ctx.stroke();
+  // Flash a fading message above the most recent stroke.
+  function flashHint(text) {
+    if (!shadow) return;
+    hideHint();
+    const s = strokes.length ? strokes[strokes.length - 1] : curStroke;
+    let cx = window.innerWidth / 2;
+    let top = window.innerHeight / 2;
+    if (s && s.length) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      for (const p of s) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+      }
+      cx = (minX + maxX) / 2;
+      top = minY;
     }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-  }
-
-  function renderSpotlight(w, h) {
-    if (!cursor.seen) return;
-    const r = 120;
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = 'rgba(8,10,20,0.55)';
-    ctx.fillRect(0, 0, w, h);
-    // punch a soft hole where the cursor is
-    ctx.globalCompositeOperation = 'destination-out';
-    const g = ctx.createRadialGradient(cursor.x, cursor.y, 0, cursor.x, cursor.y, r);
-    g.addColorStop(0, 'rgba(0,0,0,1)');
-    g.addColorStop(0.65, 'rgba(0,0,0,1)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(cursor.x, cursor.y, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-    // neon ring on the edge
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
-    ctx.globalAlpha = 0.85;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cursor.x, cursor.y, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-  }
-
-  // --------------------------------------------------------------- gestures
-
-  function maybeCircle(t) {
-    const g = (typeof globalThis !== 'undefined' ? globalThis : self).SCF_GESTURE;
-    if (!g || moveBuf.length < 8 || t - lastCircleAt < 1100) return;
-    const res = g.analyzeGesture(moveBuf, { circleMinPathPx: 230, circleRatio: 2.6 });
-    if (!res.isCircle) return;
-    lastCircleAt = t;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const p of moveBuf) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    circles.push({
-      x: (minX + maxX) / 2,
-      y: (minY + maxY) / 2,
-      rx: Math.max(30, (maxX - minX) / 2 + 16),
-      ry: Math.max(26, (maxY - minY) / 2 + 16),
-      t,
+    hintEl = document.createElement('div');
+    hintEl.className = 'scf-hint';
+    hintEl.textContent = text;
+    hintEl.style.left = Math.round(cx) + 'px';
+    hintEl.style.top = Math.max(10, Math.round(top) - 12) + 'px';
+    shadow.appendChild(hintEl);
+    const el = hintEl;
+    requestAnimationFrame(() => {
+      if (el === hintEl) el.classList.add('in');
     });
-    moveBuf = [];
-    kick();
+    hintTimer = setTimeout(() => {
+      if (el === hintEl) el.classList.remove('in');
+      setTimeout(() => {
+        if (el === hintEl) hideHint();
+      }, 600);
+    }, 2200);
   }
 
   // ----------------------------------------------------------------- input
 
-  function onMove(e) {
-    const t = nowMs();
-    cursor.x = e.clientX;
-    cursor.y = e.clientY;
-    cursor.seen = true;
-
-    if (mode === 'pen' && curStroke && e.buttons & 2) {
-      const last = curStroke[curStroke.length - 1];
-      if (last) rightMoved += Math.hypot(e.clientX - last.x, e.clientY - last.y);
-      curStroke.push({ x: e.clientX, y: e.clientY });
-      return;
-    }
-    if (mode === 'comet' || mode === 'glow') {
-      if (!trail.length || t - trail[trail.length - 1].t >= 16) {
-        trail.push({ x: e.clientX, y: e.clientY, t });
+  function emitInk() {
+    if (onInk) {
+      try {
+        onInk(strokes.length > 0);
+      } catch (_) {
+        /* ignore */
       }
-    } else if (mode === 'autocircle') {
-      moveBuf.push({ x: e.clientX, y: e.clientY, t });
-      const cutoff = t - 1000;
-      while (moveBuf.length && moveBuf[0].t < cutoff) moveBuf.shift();
-      maybeCircle(t);
     }
-    kick();
   }
 
   function onDown(e) {
-    if (mode === 'ripple' && e.button === 0) {
-      ripples.push({ x: e.clientX, y: e.clientY, t: nowMs() });
-      kick();
-    } else if (mode === 'pen' && e.button === 2) {
-      curStroke = [{ x: e.clientX, y: e.clientY }];
-      rightMoved = 0;
-      kick();
+    if (!running || !isSecondaryDown(e)) return;
+    curStroke = [{ x: e.clientX, y: e.clientY }];
+    rightMoved = 0;
+    scheduleRender();
+  }
+
+  function onMove(e) {
+    if (!running || !curStroke) return;
+    if (!secondaryHeld(e)) {
+      // button released off-window: drop the in-progress stroke
+      curStroke = null;
+      scheduleRender();
+      return;
     }
+    const last = curStroke[curStroke.length - 1];
+    if (last) rightMoved += Math.hypot(e.clientX - last.x, e.clientY - last.y);
+    curStroke.push({ x: e.clientX, y: e.clientY });
+    scheduleRender();
   }
 
   function onUp(e) {
-    if (mode !== 'pen' || e.button !== 2) return;
-    // a real drag becomes a stroke; a plain right-click is left alone (so its
-    // native context menu fires — see onContextMenu)
-    if (rightMoved >= DRAG_PX && curStroke && curStroke.length >= 2) strokes.push(curStroke);
-    curStroke = null;
-    kick();
+    if (!running) return;
+    const secondary = e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey);
+    if (!secondary) return;
+    if (rightMoved >= DRAG_PX && curStroke && curStroke.length >= 2) {
+      strokes.push(curStroke);
+      curStroke = null;
+      emitInk();
+      if (onDraw) {
+        try {
+          onDraw();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    } else {
+      // a plain secondary click — the double-click test lives in onContextMenu
+      curStroke = null;
+    }
+    scheduleRender();
   }
 
+  // Double-click-to-clear is detected here, NOT on mouseup: the contextmenu event
+  // fires reliably for every secondary click even when a menu is already open,
+  // whereas a 2nd mouseup can be swallowed by the open menu (which is why double-
+  // click looked like "two single clicks").
   function onContextMenu(e) {
-    // only swallow the menu when the user actually drew; a single right-click
-    // still gets the page's normal context menu
-    if (mode === 'pen' && rightMoved >= DRAG_PX) e.preventDefault();
+    if (!running) return;
+    const t = nowMs();
+    if (rightMoved >= DRAG_PX) {
+      // we just drew -> swallow the menu; not a click
+      e.preventDefault();
+      rightMoved = 0;
+      lastMenuAt = 0;
+      return;
+    }
+    if (lastMenuAt && t - lastMenuAt < DOUBLE_MS) {
+      // 2nd secondary-click in quick succession -> clear (and suppress this menu)
+      e.preventDefault();
+      lastMenuAt = 0;
+      clear();
+    } else {
+      // 1st secondary-click -> let the page's native menu show
+      lastMenuAt = t;
+    }
   }
 
   function attach() {
-    on(document, 'mousemove', onMove, { passive: true });
     on(document, 'mousedown', onDown, true);
+    on(document, 'mousemove', onMove, { passive: true });
     on(document, 'mouseup', onUp, true);
     on(document, 'contextmenu', onContextMenu, true);
     on(window, 'resize', sizeCanvas, { passive: true });
@@ -362,31 +284,23 @@
 
   // --------------------------------------------------------------- lifecycle
 
-  function setMode(m) {
-    const next = MODE_IDS.indexOf(m) === -1 ? 'off' : m;
-    mode = next;
-    resetBuffers();
-    if (ctx) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    kick();
-    return mode;
-  }
-
-  // Wipe the pen drawing (the persistent strokes). Other modes self-clear.
   function clear() {
     strokes = [];
     curStroke = null;
+    hideHint();
     if (ctx) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    kick();
+    emitInk();
+    scheduleRender();
   }
 
-  function start(initialMode, col) {
+  function start(col) {
     if (col) color = col;
     ensureHost();
     if (!running) {
       running = true;
       attach();
     }
-    setMode(initialMode || 'off');
+    scheduleRender();
   }
 
   function stop() {
@@ -396,14 +310,31 @@
       rafId = null;
     }
     offAll();
-    resetBuffers();
-    cursor.seen = false;
+    hideHint();
+    strokes = [];
+    curStroke = null;
+    lastMenuAt = 0;
     if (host && host.parentNode) host.parentNode.removeChild(host);
-    host = canvas = ctx = null;
-    mode = 'off';
+    host = shadow = canvas = ctx = null;
   }
 
-  const api = { start, stop, setMode, clear, MODES, MODE_IDS };
+  const api = {
+    start,
+    stop,
+    clear,
+    flashHint,
+    IS_MAC,
+    SECONDARY_LABEL,
+    onInkChange(fn) {
+      onInk = fn;
+    },
+    onAnnotated(fn) {
+      onDraw = fn;
+    },
+    hasInk() {
+      return strokes.length > 0;
+    },
+  };
   const root = typeof globalThis !== 'undefined' ? globalThis : self;
   root.SCF_ANNOTATE = api;
 })();

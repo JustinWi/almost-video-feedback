@@ -94,25 +94,7 @@
 
   .mini { font-size: 17px; line-height: 1; }
 
-  /* annotation mode picker (drawn marks show up in screenshots) */
-  .modepick {
-    cursor: pointer;
-    flex: 0 0 auto;
-    height: 30px;
-    max-width: 150px;
-    font-family: inherit;
-    font-size: 12px; font-weight: 600;
-    color: #f9fafb;
-    background: rgba(255,255,255,.10);
-    border: 1px solid rgba(255,255,255,.16);
-    border-radius: 9px;
-    padding: 0 6px;
-  }
-  .modepick:hover { background: rgba(255,255,255,.18); }
-  .modepick:focus { outline: none; border-color: rgba(244,63,94,.6); }
-  .modepick option { color: #111; background: #fff; }
-  .panel.minimized .modepick { display: none; }
-
+  /* clear-drawing button (shown only while a drawing is present) */
   .clearink.is-hidden { display: none !important; }
   .panel.minimized .clearink { display: none !important; }
 

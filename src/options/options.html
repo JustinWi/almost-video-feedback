@@ -96,20 +96,9 @@
       </section>
 
       <section>
-        <h2>Pointer annotations <span class="muted">(experimental)</span></h2>
-        <p class="muted">Draw on the page while you record so you can point at things — the marks show up in the screenshots. You can also switch this live from the overlay’s dropdown during a recording.</p>
-        <div class="field">
-          <label for="annotateMode">Default annotation mode</label>
-          <select id="annotateMode">
-            <option value="off">Off</option>
-            <option value="comet">Comet trail — a short neon trail follows the cursor</option>
-            <option value="glow">Glow trail — a longer trail so a full circle stays readable</option>
-            <option value="pen">Pen — right-drag to draw (plain right-click still opens the page menu; ⌫ clears)</option>
-            <option value="autocircle">Auto-circle — circle the cursor and it draws a ring</option>
-            <option value="spotlight">Spotlight — dim everything except around the cursor</option>
-            <option value="ripple">Click ripple — each click sends out a ring</option>
-          </select>
-        </div>
+        <h2>On-page drawing</h2>
+        <label class="inline"><input type="checkbox" id="annotate" /> Draw on the page while recording so you can point at things — the marks show up in the screenshots.</label>
+        <p class="muted" id="annotateDesc">Right-click and drag to draw in neon pink. A plain right-click still opens the page's normal menu; double right-click (or the ⌫ button on the overlay) clears.</p>
       </section>
 
       <section>

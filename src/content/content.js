@@ -29,11 +29,13 @@
     dwellMinMovePx: 120,
     circleMinPathPx: 320,
     circleRatio: 3.2,
-    annotateMode: 'off',
+    annotate: true,
     annotateColor: '#ff2d95',
     triggers: Object.assign({}, DEFAULT_TRIGGERS),
   };
   const annotate = self.SCF_ANNOTATE || null;
+  let annotateCaptureTimer = null;
+  let annotHintsLeft = 0; // first few draws get a "double-click to clear" hint
 
   let recording = false;
   let startedAt = 0;
@@ -45,7 +47,6 @@
   let timerEl = null;
   let shotsEl = null;
   let miniEl = null;
-  let modePickEl = null;
   let clearInkEl = null;
   let timerInt = null;
 
@@ -105,41 +106,48 @@
     return Object.assign({ url: location.href, title: document.title }, meta || {});
   }
 
-  // ---- annotation overlay (experimental) ---------------------------------
+  // ---- on-page drawing (telestrator) -------------------------------------
+  function showClearBtn(show) {
+    if (clearInkEl) clearInkEl.classList.toggle('is-hidden', !show);
+  }
+  function scheduleAnnotateCapture() {
+    // capture once the drawing settles so the shot includes the finished mark
+    clearTimeout(annotateCaptureTimer);
+    annotateCaptureTimer = setTimeout(() => {
+      if (recording) requestCapture(TRIGGER.ANNOTATE, withPage({}));
+    }, 600);
+  }
+  function onAnnotated() {
+    scheduleAnnotateCapture();
+    if (annotHintsLeft > 0 && annotate) {
+      annotHintsLeft -= 1;
+      try {
+        annotate.flashHint('Double ' + (annotate.SECONDARY_LABEL || 'right-click') + ' to clear');
+      } catch (e) {
+        /* ignore */
+      }
+      try {
+        chrome.storage.local.set({ annotHintsLeft });
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
   function startAnnotate() {
-    if (!annotate) return;
+    if (!annotate || cfg.annotate === false) return;
     try {
-      annotate.start(cfg.annotateMode || 'off', cfg.annotateColor || '#ff2d95');
+      annotate.onInkChange(showClearBtn);
+      annotate.onAnnotated(onAnnotated);
+      annotate.start(cfg.annotateColor || '#ff2d95');
     } catch (e) {
       /* ignore */
     }
   }
   function stopAnnotate() {
+    clearTimeout(annotateCaptureTimer);
     if (!annotate) return;
     try {
       annotate.stop();
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  function applyAnnotateMode(mode) {
-    cfg.annotateMode = mode;
-    if (annotate) {
-      try {
-        annotate.setMode(mode);
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    if (modePickEl && modePickEl.value !== mode) modePickEl.value = mode;
-    if (clearInkEl) clearInkEl.classList.toggle('is-hidden', mode !== 'pen');
-    // persist so the choice sticks into the next recording
-    try {
-      chrome.storage.local.get('settings', (got) => {
-        const s = (got && got.settings) || {};
-        s.annotateMode = mode;
-        chrome.storage.local.set({ settings: s });
-      });
     } catch (e) {
       /* ignore */
     }
@@ -189,31 +197,17 @@
     textEl = document.createElement('div');
     textEl.className = 'text';
 
-    // annotation mode picker — switch live while recording; marks are drawn into
-    // the page so they show up in the screenshots.
-    modePickEl = null;
-    if (annotate && annotate.MODES) {
-      modePickEl = document.createElement('select');
-      modePickEl.className = 'modepick';
-      modePickEl.title = 'Annotation overlay — drawn into the page + screenshots';
-      for (const mo of annotate.MODES) {
-        const opt = document.createElement('option');
-        opt.value = mo.id;
-        opt.textContent = mo.label;
-        modePickEl.appendChild(opt);
-      }
-      modePickEl.value = cfg.annotateMode || 'off';
-      modePickEl.addEventListener('change', () => applyAnnotateMode(modePickEl.value));
-
-      // clear button — only meaningful (and only shown) in pen mode
+    // clear-drawing button — appears only while a drawing is present
+    clearInkEl = null;
+    if (annotate && cfg.annotate !== false) {
       clearInkEl = document.createElement('button');
-      clearInkEl.className = 'clearink';
+      clearInkEl.className = 'clearink is-hidden';
       clearInkEl.textContent = '⌫';
-      clearInkEl.title = 'Clear the pen drawing';
+      clearInkEl.title = 'Clear the drawing';
       clearInkEl.addEventListener('click', () => {
         if (annotate && annotate.clear) annotate.clear();
       });
-      clearInkEl.classList.toggle('is-hidden', (cfg.annotateMode || 'off') !== 'pen');
+      if (annotate.hasInk && annotate.hasInk()) clearInkEl.classList.remove('is-hidden');
     }
 
     const btns = document.createElement('div');
@@ -237,7 +231,6 @@
     btns.append(shoot, mini, stop);
 
     panelEl.append(grip, sep, textEl);
-    if (modePickEl) panelEl.append(modePickEl);
     if (clearInkEl) panelEl.append(clearInkEl);
     panelEl.append(btns);
     shadow.appendChild(panelEl);
@@ -261,7 +254,7 @@
 
   function destroyOverlay() {
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
-    hostEl = panelEl = textEl = timerEl = shotsEl = miniEl = modePickEl = clearInkEl = null;
+    hostEl = panelEl = textEl = timerEl = shotsEl = miniEl = clearInkEl = null;
   }
 
   function panelSize() {
@@ -643,6 +636,14 @@
     lastScrollCaptureY = window.scrollY || 0;
     lastRouteUrl = location.href;
     recLang = (cfg.language || 'en-US');
+    // first few drawings get a "double-click to clear" hint
+    try {
+      chrome.storage.local.get('annotHintsLeft', (got) => {
+        annotHintsLeft = got && typeof got.annotHintsLeft === 'number' ? got.annotHintsLeft : 3;
+      });
+    } catch (e) {
+      annotHintsLeft = 3;
+    }
     if (cfg.showOverlay !== false) buildOverlay();
     startAnnotate();
     startTimer();

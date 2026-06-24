@@ -33,6 +33,7 @@
     CHECK_MIC: 'check_mic',
     OPEN_PERMISSION: 'open_permission',
     FORCE_SHOT: 'force_shot',
+    DELETE_RECORDING: 'delete_recording',
 
     // service worker <-> offscreen
     OFFSCREEN_READY: 'offscreen_ready',
@@ -59,6 +60,7 @@
     SCROLL: 'scroll',
     HEARTBEAT: 'heartbeat',
     FORCED: 'forced',
+    ANNOTATE: 'annotate',
   };
 
   // Priority triggers bypass the dedup cull: deliberate, high-intent actions the
@@ -73,6 +75,7 @@
     TRIGGER.SELECTION,
     TRIGGER.CIRCLE,
     TRIGGER.FORCED,
+    TRIGGER.ANNOTATE,
   ]);
 
   // Merge into the shared namespace without clobbering modules that may have

@@ -116,7 +116,13 @@ button { font-family: inherit; cursor: pointer; border: none; border-radius: 9px
 }
 .rc-btn:hover { background: rgba(30,41,59,.92); }
 
-.result-actions { display: flex; gap: 8px; }
+.result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* delete / discard (two-step confirm turns it solid red) */
+.secondary.danger:hover { background: #3b1d23; border-color: #7f1d2e; color: #fecdd3; }
+.secondary.danger.armed, .secondary.danger.armed:hover { background: #9f1239; border-color: #be123c; color: #fff; }
+.rc-del:hover { background: rgba(159,18,57,.85); border-color: #be123c; color: #fff; }
+.rc-btn.armed { background: #9f1239; border-color: #be123c; color: #fff; }
 
 footer { display: flex; align-items: center; gap: 8px; justify-content: center; }
 .link { background: none; color: #818cf8; font-weight: 600; font-size: 12px; padding: 2px 4px; }

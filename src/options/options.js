@@ -8,7 +8,7 @@
     { id: 'jpegQuality', path: 'jpegQuality', type: 'int' },
     { id: 'dedupHammingThreshold', path: 'dedupHammingThreshold', type: 'int' },
     { id: 'clickDedup', path: 'clickDedup', type: 'select' },
-    { id: 'annotateMode', path: 'annotateMode', type: 'select' },
+    { id: 'annotate', path: 'annotate', type: 'checkbox' },
     { id: 'maxScreenshots', path: 'maxScreenshots', type: 'int' },
     { id: 'minCaptureIntervalMs', path: 'minCaptureIntervalMs', type: 'int' },
     { id: 'heartbeatSeconds', path: 'heartbeatSeconds', type: 'int' },
@@ -98,6 +98,18 @@
   document.getElementById('shortcuts').addEventListener('click', () => {
     chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
   });
+
+  // platform-aware wording for the drawing gesture (Mac uses Control-click)
+  (function () {
+    const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+    if (!isMac) return;
+    const d = document.getElementById('annotateDesc');
+    if (d) {
+      d.textContent =
+        'Control-click and drag to draw in neon pink (two-finger scroll and a plain ' +
+        'Control-click still work as usual). Double Control-click (or the ⌫ button on the overlay) clears.';
+    }
+  })();
 
   cfg.load().then(populate);
 })();
