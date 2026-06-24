@@ -169,18 +169,16 @@ async function closeOffscreen() {
 // Inject the content script for tabs that were already open before the extension
 // loaded (manifest injection only covers tabs navigated after install). The
 // content files guard against double-initialization, so this is idempotent.
+// The file list comes straight from the manifest so the two can never drift.
+function contentScriptFiles() {
+  const cs = (chrome.runtime.getManifest().content_scripts || [])[0];
+  return (cs && cs.js) || [];
+}
 async function ensureContentScript(tabId) {
+  const files = contentScriptFiles();
+  if (!files.length) return;
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: [
-        'src/common/protocol.js',
-        'src/content/overlay-style.js',
-        'src/content/dom-descriptor.js',
-        'src/content/gesture.js',
-        'src/content/content.js',
-      ],
-    });
+    await chrome.scripting.executeScript({ target: { tabId }, files });
   } catch (e) {
     /* restricted page or already present */
   }
