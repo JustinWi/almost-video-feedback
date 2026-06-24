@@ -594,7 +594,9 @@
       cfg.triggers = Object.assign({}, DEFAULT_TRIGGERS, msg.settings.triggers || {});
     }
     recording = true;
-    finalText = '';
+    // a re-armed overlay (followed focus to a new window, or a navigation) gets
+    // the transcript so far, so it doesn't look like we lost what you said
+    finalText = msg.transcript || '';
     interimText = '';
     micErrorMsg = '';
     shotCount = 0;

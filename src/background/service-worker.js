@@ -26,6 +26,10 @@ let creatingOffscreen = null;
 // Stays true through the post-stop flush window so the final spoken segment
 // (which arrives a few hundred ms after we stop recognition) is still recorded.
 let transcriptOpen = false;
+// Running transcript (finalized segments) for the session, so a freshly-armed
+// overlay — e.g. after following focus to another window — shows what's been
+// heard so far instead of looking like it lost everything.
+let transcriptText = '';
 let stopping = false; // true while a stop is saving/exporting (popup shows "Saving…")
 let starting = false; // true between a start request and session becoming active (debounces icon double-clicks)
 let recoverPromise = null; // resolves once mid-session state has been restored
@@ -241,6 +245,7 @@ async function startRecording(requestedTabId) {
   capture.begin({ windowId: tab.windowId, tabId: tab.id, settings, lastUrl: tab.url, lastTitle: tab.title, startedAt });
   capture.hooks.onKept = () => broadcastStatus();
   transcriptOpen = true;
+  transcriptText = '';
   inkFrames.clear();
 
   // Screenshots are written to Downloads during the recording (so stop is fast);
@@ -258,7 +263,7 @@ async function startRecording(requestedTabId) {
   // Arm the (usually already-injected) content script immediately so the overlay
   // appears instantly; inject in the background for tabs that predate the
   // extension (their CONTENT_READY re-arms them). Don't block start on injection.
-  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings, startedAt });
+  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings, startedAt, transcript: transcriptText });
   ensureContentScript(tab.id);
 
   if (settings.triggers.start) {
@@ -502,7 +507,12 @@ async function followFocus() {
   // tear down the overlay/recognizer on the old tab, arm the newly-focused one
   notifyContent(oldTabId, { type: MSG.SESSION_STOPPED });
   await ensureContentScript(tab.id);
-  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings: session.settings, startedAt: session.startedAt });
+  notifyContent(tab.id, {
+    type: MSG.SESSION_STARTED,
+    settings: session.settings,
+    startedAt: session.startedAt,
+    transcript: transcriptText, // so the new window's overlay shows what we've heard
+  });
 
   // capture the newly-focused view + record the page change
   store.addEvent({ t: Date.now(), type: 'navigation', url: tab.url, title: tab.title || null });
@@ -594,6 +604,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           type: MSG.SESSION_STARTED,
           settings: session.settings,
           startedAt: session.startedAt,
+          transcript: transcriptText,
         });
       }
       return false;
@@ -676,6 +687,7 @@ function handleTranscript(msg) {
   const t = msg.t || Date.now();
   if (msg.final && transcriptOpen) {
     store.addEvent({ t, type: 'transcript', final: true, text: msg.text });
+    transcriptText += (transcriptText ? ' ' : '') + msg.text;
   }
   if (session && session.active) {
     notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, final: !!msg.final, text: msg.text });
@@ -725,6 +737,17 @@ async function recover() {
       );
       capture.hooks.onKept = () => broadcastStatus();
       transcriptOpen = true;
+      // rebuild the running transcript from stored finals so a re-armed overlay
+      // after this restart still shows what was already heard
+      try {
+        const evs = await store.getEvents();
+        transcriptText = (evs || [])
+          .filter((e) => e.type === 'transcript' && e.final && e.text)
+          .map((e) => e.text)
+          .join(' ');
+      } catch (e) {
+        /* ignore */
+      }
       self.SCF.downloads.setDownloadUi(false);
       setBadge('recording');
       if (settings.triggers.heartbeat) {
