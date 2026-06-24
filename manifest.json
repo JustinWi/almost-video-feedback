@@ -74,5 +74,11 @@
       },
       "description": "Force a screenshot now"
     }
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/recognizer/recognizer.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

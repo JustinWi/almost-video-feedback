@@ -73,13 +73,11 @@
   let routeTimer = null;
   let lastRouteUrl = location.href;
 
-  // speech recognition (runs here in the page context — Web Speech does not work
-  // inside an MV3 offscreen document)
-  let recognition = null;
-  let recWant = false;
-  let recRunning = false;
+  // speech recognition runs in an extension-origin iframe (injected here) so it
+  // uses the extension's one-time microphone permission instead of prompting on
+  // every site. Transcript flows iframe -> service worker -> this overlay.
+  let recIframe = null;
   let recLang = 'en-US';
-  let recRestartTimer = null;
   let micErrorMsg = '';
 
   // keepalive port so the service worker isn't evicted during quiet stretches
@@ -293,10 +291,12 @@
       textEl.innerHTML = '<span class="placeholder">Listening… speak your feedback</span>';
       return;
     }
-    const tail = finalText.slice(-280);
+    const tail = finalText.slice(-400);
     textEl.innerHTML =
       escapeHtml(tail) +
       (interimText ? ' <span class="interim">' + escapeHtml(interimText) + '</span>' : '');
+    // keep the most recent words in view (newest at the bottom)
+    textEl.scrollTop = textEl.scrollHeight;
   }
 
   function startTimer() {
@@ -487,87 +487,29 @@
 
   // ------------------------------------------------------- speech recognition
 
-  function startRecognition() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      micErrorMsg = '⚠️ Speech recognition is not available in this browser.';
-      renderTranscript();
-      return;
-    }
-    recWant = true;
-    if (recRunning) return;
+  // Inject the extension-origin recognizer iframe. It runs Web Speech using the
+  // extension's microphone permission (granted once) and streams transcript to
+  // the service worker, which forwards it back here via TRANSCRIPT_UPDATE.
+  function startRecognizer() {
+    if (recIframe) return;
     micErrorMsg = '';
-    recognition = new SR();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = recLang;
-    recognition.onstart = () => {
-      recRunning = true;
-    };
-    recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const res = event.results[i];
-        const txt = res[0] && res[0].transcript ? res[0].transcript : '';
-        if (res.isFinal) {
-          const f = txt.trim();
-          if (f) {
-            finalText += (finalText ? ' ' : '') + f;
-            // persist the finalized segment for the export
-            send({ type: MSG.TRANSCRIPT_SEGMENT, final: true, text: f, t: Date.now() });
-          }
-        } else {
-          interim += txt;
-        }
-      }
-      interimText = interim.trim();
-      renderTranscript();
-    };
-    recognition.onerror = (e) => {
-      const err = e && e.error ? e.error : 'unknown';
-      if (err === 'not-allowed' || err === 'service-not-allowed') {
-        recWant = false;
-        micErrorMsg = '⚠️ Microphone blocked for this site — click the 🎤 / site icon in the address bar, allow it, then restart recording.';
-        renderTranscript();
-        send({ type: MSG.TRANSCRIBE_ERROR, error: err });
-      }
-      // 'no-speech' / 'network' / 'aborted' are handled by onend auto-restart
-    };
-    recognition.onend = () => {
-      recRunning = false;
-      if (recWant) {
-        clearTimeout(recRestartTimer);
-        recRestartTimer = setTimeout(() => {
-          if (!recWant) return;
-          try {
-            recognition.start();
-          } catch (e) {
-            try {
-              startRecognition();
-            } catch (e2) {
-              /* give up until next session */
-            }
-          }
-        }, 250);
-      }
-    };
     try {
-      recognition.start();
+      recIframe = document.createElement('iframe');
+      recIframe.src =
+        chrome.runtime.getURL('src/recognizer/recognizer.html') + '?lang=' + encodeURIComponent(recLang);
+      recIframe.allow = 'microphone';
+      recIframe.setAttribute('aria-hidden', 'true');
+      recIframe.style.cssText =
+        'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none;';
+      (document.documentElement || document.body).appendChild(recIframe);
     } catch (e) {
-      /* start() throws if called while already starting */
+      /* ignore */
     }
   }
 
-  function stopRecognition() {
-    recWant = false;
-    clearTimeout(recRestartTimer);
-    if (recognition) {
-      try {
-        recognition.stop();
-      } catch (e) {
-        /* ignore */
-      }
-    }
+  function stopRecognizer() {
+    if (recIframe && recIframe.parentNode) recIframe.parentNode.removeChild(recIframe);
+    recIframe = null;
   }
 
   // ----------------------------------------------------------------- keepalive
@@ -627,14 +569,14 @@
     startTimer();
     startTracking();
     patchHistory();
-    startRecognition();
+    startRecognizer();
     startKeepalive();
     send({ type: MSG.PAGE_INFO, url: location.href, title: document.title });
   }
 
   function onSessionStopped() {
     recording = false;
-    stopRecognition();
+    stopRecognizer();
     stopKeepalive();
     stopTracking();
     unpatchHistory();
@@ -721,6 +663,17 @@
         break;
       case MSG.SAVED_NOTICE:
         showSavedToast();
+        break;
+      case MSG.TRANSCRIPT_UPDATE:
+        if (msg.micError) {
+          micErrorMsg = '⚠️ Microphone blocked — allow it for the extension, then restart recording.';
+        } else if (msg.final) {
+          finalText += (finalText ? ' ' : '') + msg.text;
+          interimText = '';
+        } else {
+          interimText = msg.text;
+        }
+        renderTranscript();
         break;
       case MSG.SCREENSHOT_TOAST:
         // no flashing toast — just bump the static counter in the bar

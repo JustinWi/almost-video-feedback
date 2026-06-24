@@ -21,9 +21,10 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
 ## How it works
 
 - **Transcription** runs in real time via Chrome's built-in **Web Speech API** (no API key, no
-  setup). It runs in the **content script** (the live page context) — Chrome's Web Speech API
-  does not produce results inside an MV3 offscreen document, so the page is the right home for it.
-  A higher-quality remote engine (Deepgram / AssemblyAI / Whisper) can be added later.
+  setup), hosted in a hidden **extension-origin iframe** injected into the page. That gives it a
+  foreground document (which Web Speech needs — it doesn't work in an offscreen document) *and* the
+  extension's one-time microphone permission (so you're not prompted per site). A higher-quality
+  remote engine (Deepgram / AssemblyAI / Whisper) can be added later.
 - **Screenshots** are captured at strategically chosen moments and **deduplicated** so the agent
   isn't drowned in near-identical frames. Capture triggers:
   - on start, on new page load, and on in-app (SPA) navigation
@@ -83,10 +84,10 @@ Requires Chrome 116+.
 
 ## Microphone
 
-The first time you start recording on a given site, Chrome shows its standard in-page microphone
-prompt — click **Allow**. The grant is remembered per site, so you only do it once per origin
-(your own app / `localhost` included). If you block it by mistake, re-allow it via the microphone
-icon in the address bar and start again.
+Transcription runs in a hidden **extension-origin iframe**, so you grant the microphone to the
+extension **once** (Chrome's prompt the first time you record, or via the toolbar popup's mic meter)
+and it's reused on every site — no per-website prompts. If recording shows a "microphone blocked"
+hint, open the toolbar popup once to grant it, then start again.
 
 ## Privacy & security
 

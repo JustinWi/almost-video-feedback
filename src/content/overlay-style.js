@@ -62,14 +62,12 @@
   .text {
     flex: 1 1 auto;
     min-width: 220px;
-    max-height: 3.2em;
+    height: 2.7em;        /* ~2 lines; we scroll to the bottom to show the newest words */
     overflow: hidden;
     font-size: 13.5px;
     line-height: 1.35;
     color: #e5e7eb;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    white-space: normal;
   }
   .text .interim { color: #9ca3af; }
   .text .placeholder { color: #9ca3af; font-style: italic; }

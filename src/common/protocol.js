@@ -39,6 +39,9 @@
     OFFSCREEN_READY: 'offscreen_ready',
     OFFSCREEN_START: 'offscreen_start',
     OFFSCREEN_STOP: 'offscreen_stop',
+
+    // service worker <-> recognizer iframe (Web Speech at the extension origin)
+    RECOGNIZER_STOP: 'recognizer_stop',
     TRANSCRIPT_SEGMENT: 'transcript_segment',
     TRANSCRIBE_ERROR: 'transcribe_error',
     COPY_TO_CLIPBOARD: 'copy_to_clipboard',

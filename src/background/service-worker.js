@@ -247,12 +247,12 @@ async function stopRecording(opts) {
   chrome.alarms.clear('heartbeat');
   capture.end();
 
-  // Tell the content script to stop recognition + tear down the overlay. Its
-  // final speech segment arrives in the next few hundred ms; transcriptOpen
-  // keeps handleTranscript writing it until we finalize below.
-  notifyContent(s.tabId, { type: MSG.SESSION_STOPPED });
+  // Ask the recognizer iframe to flush its final segment (transcriptOpen keeps
+  // handleTranscript writing it), then tear down the overlay + iframe.
+  broadcast({ type: MSG.RECOGNIZER_STOP });
   await delay(800);
   transcriptOpen = false;
+  notifyContent(s.tabId, { type: MSG.SESSION_STOPPED });
 
   const endedAt = Date.now();
   await store.patchMeta({ active: false, endedAt });
@@ -375,6 +375,50 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
+// ------------------------------------------------------ follow focus
+// During a session, move the recording (overlay, input tracking, recognizer,
+// captures) to whatever tab/window the user focuses, so reviewing a multi-tab
+// flow is captured continuously.
+let followTimer = null;
+function scheduleFollowFocus() {
+  if (!session || !session.active) return;
+  clearTimeout(followTimer);
+  followTimer = setTimeout(followFocus, 250);
+}
+
+async function followFocus() {
+  if (!session || !session.active) return;
+  let tab;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    tab = tabs[0];
+  } catch (e) {
+    return;
+  }
+  if (!tab || tab.id === session.tabId) return; // already recording this tab
+  if (!capturable(tab.url)) return; // ignore chrome:// etc. — keep the previous tab
+
+  const oldTabId = session.tabId;
+  session.tabId = tab.id;
+  session.windowId = tab.windowId;
+  capture.setContext({ tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title });
+  store.patchMeta({ tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title }).catch(() => {});
+
+  // tear down the overlay/recognizer on the old tab, arm the newly-focused one
+  notifyContent(oldTabId, { type: MSG.SESSION_STOPPED });
+  await ensureContentScript(tab.id);
+  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings: session.settings, startedAt: session.startedAt });
+
+  // capture the newly-focused view + record the page change
+  store.addEvent({ t: Date.now(), type: 'navigation', url: tab.url, title: tab.title || null });
+  capture.request(TRIGGER.NAVIGATION, { url: tab.url, title: tab.title || null });
+}
+
+chrome.tabs.onActivated.addListener(scheduleFollowFocus);
+chrome.windows.onFocusChanged.addListener((winId) => {
+  if (winId !== chrome.windows.WINDOW_ID_NONE) scheduleFollowFocus();
+});
+
 // --------------------------------------------------------------- messaging
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -484,23 +528,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 function handleTranscript(msg) {
-  // transcription comes from the content script (page context); store the
-  // finalized segments through the post-stop flush window. The content script
-  // renders the live overlay itself, so we don't echo anything back.
+  // transcription comes from the recognizer iframe; store finalized segments
+  // through the post-stop flush window, and forward everything to the overlay.
   const t = msg.t || Date.now();
   if (msg.final && transcriptOpen) {
     store.addEvent({ t, type: 'transcript', final: true, text: msg.text });
   }
+  if (session && session.active) {
+    notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, final: !!msg.final, text: msg.text });
+  }
 }
 
 function handleTranscribeError(msg) {
-  // the page denied microphone access; the content script shows an inline hint.
+  const err = (msg.error || '').toLowerCase();
   console.warn('[scf] transcribe error:', msg.error);
-  broadcast({
-    type: MSG.STATUS,
-    state: statePayload(),
-    error: 'Microphone was blocked for this page. Allow it via the address-bar mic icon, then restart recording.',
-  });
+  if (err.includes('not-allowed') || err.includes('service-not-allowed')) {
+    if (session && session.active) notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true });
+    broadcast({
+      type: MSG.STATUS,
+      state: statePayload(),
+      error: 'Microphone was blocked. Allow it for the extension (toolbar popup), then restart recording.',
+    });
+  }
 }
 
 // ---- keepalive port from offscreen keeps the SW alive during long silences ----

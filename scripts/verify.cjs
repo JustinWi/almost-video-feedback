@@ -49,7 +49,7 @@ for (const r of refs.filter(Boolean)) {
 
 // pages referenced from code, not the manifest
 console.log('code-referenced pages:');
-['src/offscreen/offscreen.html', 'src/offscreen/offscreen.js', 'src/popup/popup.js', 'src/options/options.js', 'src/history/history.html', 'src/history/history.js', 'src/common/zip.js'].forEach((p) => {
+['src/offscreen/offscreen.html', 'src/offscreen/offscreen.js', 'src/popup/popup.js', 'src/options/options.js', 'src/history/history.html', 'src/history/history.js', 'src/common/zip.js', 'src/recognizer/recognizer.html', 'src/recognizer/recognizer.js'].forEach((p) => {
   if (exists(p)) ok(p);
   else bad('missing: ' + p);
 });
