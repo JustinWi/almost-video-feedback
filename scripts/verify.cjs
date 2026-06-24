@@ -30,6 +30,16 @@ try {
   process.exit(1);
 }
 
+// version sync: manifest.json (what Chrome reads) and package.json must agree.
+// `npm run bump` updates both together; this guards against editing only one.
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  if (manifest.version === pkg.version) ok('version in sync: ' + manifest.version);
+  else bad('version mismatch: manifest.json ' + manifest.version + ' != package.json ' + pkg.version + ' (run npm run bump)');
+} catch (e) {
+  bad('package.json invalid: ' + e.message);
+}
+
 const refs = [];
 refs.push(manifest.background && manifest.background.service_worker);
 (manifest.content_scripts || []).forEach((cs) => {

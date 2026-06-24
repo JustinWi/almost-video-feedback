@@ -71,13 +71,22 @@ the unit tests** — say it's unverified and needs a human to load it.
 - [ ] Docs updated if behavior, names, permissions, or the output format changed (README / INSTALL /
       CONTRIBUTING / this file).
 - [ ] Manually loaded in Chrome and sanity-checked (or explicitly flagged as needing a human to verify).
+- [ ] User-facing change shipping a release? Bump the version with `npm run bump` (keeps
+      `manifest.json` + `package.json` in sync) — see **Releasing** below.
 - [ ] Focused commits; PR explains **what** and **why**.
 
 ## Releasing (maintainers)
 
-1. Bump `version` in `manifest.json` (and `package.json`).
-2. `npm run pack` → rebuilds `dist/almost-video-feedback.zip`.
-3. Tag + GitHub release, attaching that zip (`gh release create vX.Y.Z dist/almost-video-feedback.zip ...`).
+Users install via "Load unpacked", so Chrome does **not** auto-update — every user-facing change
+should get a version bump and a fresh GitHub release so people can tell what they're running (the
+README's install link points at `/releases/latest`).
+
+1. **Bump the version:** `npm run bump` (patch) — or `npm run bump:minor` / `npm run bump:major`, or
+   `node scripts/bump.cjs X.Y.Z` for an explicit version. This updates `version` in **both**
+   `manifest.json` and `package.json` at once; they must match (`npm run verify` fails if they drift).
+2. `npm test && npm run verify && npm run pack` (add `npm run pack:store` if refreshing Web Store assets).
+3. Commit the bump, then tag + publish the release with the zip:
+   `gh release create vX.Y.Z dist/almost-video-feedback.zip -t "vX.Y.Z" -n "<short notes>"`.
 
 ## Quick file map
 
