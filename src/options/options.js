@@ -99,15 +99,16 @@
     chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
   });
 
-  // platform-aware wording for the drawing gesture (Mac uses Control-click)
+  // platform-aware wording for the drawing gesture (Mac uses Control+Option+click)
   (function () {
     const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
     if (!isMac) return;
     const d = document.getElementById('annotateDesc');
     if (d) {
       d.textContent =
-        'Control-click and drag to draw in neon pink (two-finger scroll and a plain ' +
-        'Control-click still work as usual). Double Control-click (or the ⌫ button on the overlay) clears.';
+        'Control-Option-click and drag to draw in neon pink — a deliberate combo that stays clear ' +
+        'of scroll-zoom and the menu (two-finger scroll and a plain right-/Control-click still work ' +
+        'as usual). A mouse right-drag also draws. Double Control-Option-click (or the ⌫ button on the overlay) clears.';
     }
   })();
 

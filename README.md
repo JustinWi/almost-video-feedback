@@ -44,11 +44,12 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
   position is remembered. It stays put during captures (no flicker); minimize or move it if you want
   it out of a screenshot. The canonical "recording" state is also shown in the toolbar badge (a red ●).
 - **On-page drawing** (telestrator): on by default — **right-click and drag** to draw on the page in
-  neon pink so the AI can see what you're pointing at (on macOS it's **Control-click and drag**, since
-  two-finger trackpad drag is scrolling). Works **over embedded iframes** too (each frame draws over its
-  own area). The marks are painted into the page, so they show up in the screenshots, and a screenshot
-  is captured after each drawing. A plain right-click still opens the page's normal menu; **double
-  right-click** — or the **⌫** button that appears on the overlay — clears (every frame). Turn it off in
+  neon pink so the AI can see what you're pointing at. On macOS use **Control-Option-click and drag**
+  (a deliberate combo that stays clear of the right-click menu and Control+scroll zoom; a mouse
+  right-drag works too). Works **over embedded iframes** too (each frame draws over its own area). The
+  marks are painted into the page, so they show up in the screenshots, and a screenshot is captured
+  after each drawing. A plain right-click still opens the page's normal menu; **double-click** the draw
+  gesture — or the **⌫** button that appears on the overlay — clears (every frame). Turn it off in
   Settings.
 - **Mic meter**: the popup shows a live microphone level so you can confirm audio is being picked up.
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),

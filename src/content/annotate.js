@@ -3,16 +3,16 @@
  * into the page so the marks show up in the screenshots. Classic content script
  * -> globalThis.SCF_ANNOTATE.
  *
- * Draw: hold the secondary mouse button and drag.
- *   - Windows/Linux: right-button drag.
- *   - macOS: Control-click + drag (two-finger trackpad drag is reserved for
- *     scrolling, so we use Control-click, which is the Mac "secondary click").
- * A plain secondary click is left alone, so the page's normal context menu still
- * works. Double secondary-click clears the drawing; so does clear().
+ * Draw: a right-button drag (Windows/Linux/Mac mouse), OR a Control+Option+left
+ * drag (the safe combo on a Mac trackpad — two-finger drag is scrolling and plain
+ * Control-click is the OS secondary-click; Control+Option also works elsewhere).
+ * A plain right-click / Control-click still opens the page's normal menu. Clearing:
+ * double the draw gesture (double right-click, or double Control+Option-click), or
+ * clear().
  *
  * The canvas is pointer-events:none and never blocks the page — we read the mouse
- * from document listeners and only suppress the context menu while actually drawing
- * (or on the 2nd click of a clear).
+ * from document listeners and only suppress the context menu while actually drawing,
+ * for the Control+Option modifier, or on the 2nd click of a clear.
  */
 (function () {
   'use strict';
@@ -20,9 +20,13 @@
   if (root.SCF_ANNOTATE) return; // already injected in this frame (top frame loads it twice)
 
   const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-  const SECONDARY_LABEL = IS_MAC ? 'Control-click' : 'right-click';
+  // Draw gesture: right-button drag everywhere, plus Control+Option+left drag (the
+  // safe, intuitive combo on a Mac — plain Control-click stays the native menu, and
+  // it doesn't collide with Control+scroll zoom). Control+Option also works on
+  // Windows/Linux as an alternative to right-drag.
+  const SECONDARY_LABEL = IS_MAC ? 'Control-Option-click' : 'right-click';
   const DRAG_PX = 8; // movement beyond this is a draw, not a click
-  const DOUBLE_MS = 450; // window for a double secondary-click -> clear
+  const DOUBLE_MS = 450; // window for a double tap -> clear
 
   let host = null;
   let shadow = null;
@@ -37,7 +41,8 @@
   let strokes = []; // committed: [[{x,y}...]]
   let curStroke = null;
   let rightMoved = 0;
-  let lastMenuAt = 0; // timestamp of the last plain secondary-click (for double-click)
+  let lastMenuAt = 0; // last right-click tap (double-right-click clear, via contextmenu)
+  let lastTapAt = 0; // last Control+Option tap (double-tap clear, via mouseup)
 
   let hintEl = null;
   let hintTimer = null;
@@ -63,11 +68,14 @@
     handlers.length = 0;
   }
 
+  function isCtrlOptLeft(e) {
+    return e.button === 0 && e.ctrlKey && e.altKey;
+  }
   function isSecondaryDown(e) {
-    return e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey);
+    return e.button === 2 || isCtrlOptLeft(e);
   }
   function secondaryHeld(e) {
-    return (e.buttons & 2) !== 0 || (IS_MAC && (e.buttons & 1) !== 0 && e.ctrlKey);
+    return (e.buttons & 2) !== 0 || ((e.buttons & 1) !== 0 && e.ctrlKey && e.altKey);
   }
 
   // ------------------------------------------------------------- canvas setup
@@ -144,7 +152,8 @@
     ctx.shadowColor = color;
     ctx.shadowBlur = 12;
     for (const s of strokes) strokePath(s);
-    if (curStroke) strokePath(curStroke);
+    // don't paint a 1-point in-progress stroke — a tap/click shouldn't leave a dot
+    if (curStroke && curStroke.length >= 2) strokePath(curStroke);
     ctx.shadowBlur = 0;
   }
 
@@ -251,8 +260,7 @@
 
   function onUp(e) {
     if (!running) return;
-    const secondary = e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey);
-    if (!secondary) return;
+    if (e.button !== 2 && !isCtrlOptLeft(e)) return;
     if (rightMoved >= DRAG_PX && curStroke && curStroke.length >= 2) {
       strokes.push(curStroke);
       curStroke = null;
@@ -266,34 +274,46 @@
         }
       }
     } else {
-      // a plain secondary click — the double-click test lives in onContextMenu
       curStroke = null;
+      // A Control+Option tap doesn't open a menu (we suppress it), so mouseup is
+      // reliable — detect the double-tap-to-clear here. (Right-clicks are handled
+      // in onContextMenu, since an open native menu can swallow the 2nd mouseup.)
+      if (isCtrlOptLeft(e)) {
+        const t = nowMs();
+        if (lastTapAt && t - lastTapAt < DOUBLE_MS) {
+          lastTapAt = 0;
+          clear();
+        } else {
+          lastTapAt = t;
+        }
+      }
     }
     scheduleRender();
   }
 
-  // Double-click-to-clear is detected here, NOT on mouseup: the contextmenu event
-  // fires reliably for every secondary click even when a menu is already open,
-  // whereas a 2nd mouseup can be swallowed by the open menu (which is why double-
-  // click looked like "two single clicks").
   function onContextMenu(e) {
     if (!running) return;
+    // Control+Option is our draw modifier -> never show a menu for it (clearing is
+    // handled on mouseup). A plain Control-click (no Option) still gets the menu.
+    if (e.ctrlKey && e.altKey) {
+      e.preventDefault();
+      return;
+    }
     const t = nowMs();
     if (rightMoved >= DRAG_PX) {
-      // we just drew -> swallow the menu; not a click
-      e.preventDefault();
+      e.preventDefault(); // we just drew -> swallow the menu
       rightMoved = 0;
       lastMenuAt = 0;
       return;
     }
+    // Double right-click clears. Detected here (not mouseup): contextmenu fires
+    // reliably for each right-click even when a menu is already open.
     if (lastMenuAt && t - lastMenuAt < DOUBLE_MS) {
-      // 2nd secondary-click in quick succession -> clear (and suppress this menu)
       e.preventDefault();
       lastMenuAt = 0;
       clear();
     } else {
-      // 1st secondary-click -> let the page's native menu show
-      lastMenuAt = t;
+      lastMenuAt = t; // 1st right-click -> let the native menu show
     }
   }
 
@@ -337,6 +357,7 @@
     strokes = [];
     curStroke = null;
     lastMenuAt = 0;
+    lastTapAt = 0;
     if (host && host.parentNode) host.parentNode.removeChild(host);
     host = shadow = canvas = ctx = null;
   }
