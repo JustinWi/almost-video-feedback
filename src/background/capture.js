@@ -23,6 +23,7 @@
 
   const state = {
     enabled: false,
+    paused: false,
     busy: false,
     queue: [],
     lastCaptureAt: 0,
@@ -40,6 +41,7 @@
 
   function begin(ctx) {
     state.enabled = true;
+    state.paused = false;
     state.busy = false;
     state.queue = [];
     state.lastCaptureAt = 0;
@@ -75,8 +77,13 @@
     return state.seq;
   }
 
+  function setPaused(p) {
+    state.paused = !!p;
+    if (state.paused) state.queue = []; // drop anything queued; nothing captures while paused
+  }
+
   function request(trigger, meta) {
-    if (!state.enabled || !state.ctx) return;
+    if (!state.enabled || state.paused || !state.ctx) return;
     const settings = state.ctx.settings;
     // Respect per-trigger toggles, but forced/start are always allowed.
     if (
@@ -289,5 +296,5 @@
     }
   }
 
-  root.SCF.capture = { begin, restore, end, setContext, request, getSeq, hooks, _state: state };
+  root.SCF.capture = { begin, restore, end, setContext, setPaused, request, getSeq, hooks, _state: state };
 })(typeof globalThis !== 'undefined' ? globalThis : self);

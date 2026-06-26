@@ -38,6 +38,7 @@
 
   let recording = false;
   let micListening = false; // true once the recognizer is actually capturing audio
+  let paused = false;
 
   // overlay refs
   let hostEl = null;
@@ -46,6 +47,7 @@
   let recLabelEl = null;
   let shotsEl = null;
   let miniEl = null;
+  let pauseBtnEl = null;
   let clearInkEl = null;
 
   // overlay UI state
@@ -194,6 +196,12 @@
 
     const btns = document.createElement('div');
     btns.className = 'btns';
+    const pause = document.createElement('button');
+    pause.className = 'pause';
+    pause.textContent = '⏸';
+    pause.title = 'Pause recording';
+    pause.addEventListener('click', () => send({ type: MSG.TOGGLE_PAUSE }));
+    pauseBtnEl = pause;
     const shoot = document.createElement('button');
     shoot.className = 'shoot';
     shoot.textContent = '📸';
@@ -210,7 +218,7 @@
     stop.textContent = '⏹';
     stop.title = 'Stop recording';
     stop.addEventListener('click', () => send({ type: MSG.STOP_RECORDING }));
-    btns.append(shoot, mini, stop);
+    btns.append(pause, shoot, mini, stop);
 
     panelEl.append(grip, sep, textEl);
     if (clearInkEl) panelEl.append(clearInkEl);
@@ -238,15 +246,24 @@
   // "starting microphone…" state (spinner) instead of the live recording UI, so it
   // never looks like we're recording before the mic is on.
   function applyMicState() {
-    const starting = !micListening && !micErrorMsg;
-    if (panelEl) panelEl.classList.toggle('starting', starting);
-    if (recLabelEl) recLabelEl.textContent = micErrorMsg ? '⚠' : micListening ? 'REC' : 'Starting…';
+    const starting = !paused && !micListening && !micErrorMsg;
+    if (panelEl) {
+      panelEl.classList.toggle('starting', starting);
+      panelEl.classList.toggle('paused', paused);
+    }
+    if (recLabelEl) {
+      recLabelEl.textContent = paused ? 'PAUSED' : micErrorMsg ? '⚠' : micListening ? 'REC' : 'Starting…';
+    }
+    if (pauseBtnEl) {
+      pauseBtnEl.textContent = paused ? '▶' : '⏸';
+      pauseBtnEl.title = paused ? 'Resume recording' : 'Pause recording';
+    }
     renderTranscript();
   }
 
   function destroyOverlay() {
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
-    hostEl = panelEl = textEl = recLabelEl = shotsEl = miniEl = clearInkEl = null;
+    hostEl = panelEl = textEl = recLabelEl = shotsEl = miniEl = pauseBtnEl = clearInkEl = null;
   }
 
   function panelSize() {
@@ -348,7 +365,11 @@
       return;
     }
     if (!finalText && !interimText) {
-      const ph = micListening ? 'Listening… speak your feedback' : 'Starting microphone…';
+      const ph = paused
+        ? 'Paused — resume to keep recording'
+        : micListening
+          ? 'Listening… speak your feedback'
+          : 'Starting microphone…';
       textEl.innerHTML = '<span class="placeholder">' + ph + '</span>';
       return;
     }
@@ -608,6 +629,7 @@
       cfg.triggers = Object.assign({}, DEFAULT_TRIGGERS, msg.settings.triggers || {});
     }
     recording = true;
+    paused = !!msg.paused; // a re-arm during a pause stays paused
     micListening = false; // show "starting microphone…" until the recognizer is live
     // a re-armed overlay (followed focus to a new window, or a navigation) gets
     // the transcript so far, so it doesn't look like we lost what you said
@@ -623,13 +645,15 @@
     startAnnotate();
     startTracking();
     patchHistory();
-    startRecognizer();
+    if (!paused) startRecognizer(); // don't turn the mic on if we re-armed while paused
     startKeepalive();
     send({ type: MSG.PAGE_INFO, url: location.href, title: document.title });
   }
 
   function onSessionStopped() {
     recording = false;
+    paused = false;
+    micListening = false;
     stopRecognizer();
     stopKeepalive();
     stopTracking();
@@ -639,6 +663,20 @@
     finalText = '';
     interimText = '';
     micErrorMsg = '';
+  }
+
+  function onSessionPaused() {
+    paused = true;
+    micListening = false;
+    stopRecognizer(); // turn the mic off while paused
+    applyMicState();
+  }
+
+  function onSessionResumed() {
+    paused = false;
+    micListening = false; // mic restarts -> "starting microphone…" until it's live again
+    startRecognizer();
+    applyMicState();
   }
 
   // -------------------------------------------------- "saved" page toast
@@ -714,6 +752,12 @@
         break;
       case MSG.SESSION_STOPPED:
         onSessionStopped();
+        break;
+      case MSG.SESSION_PAUSED:
+        onSessionPaused();
+        break;
+      case MSG.SESSION_RESUMED:
+        onSessionResumed();
         break;
       case MSG.SAVED_NOTICE:
         showSavedToast();

@@ -39,7 +39,7 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
     (a toggle, a menu) **or** the page changed a lot — and dropped when the click changed nothing.
     (Switchable to "always capture" or plain whole-screen dedup in Settings.)
 - **Overlay**: a single translucent bar shows the live transcript, a screenshot
-  counter, and Shot / minimize / Stop buttons (plus a **⌫** clear button while a drawing is present). It's
+  counter, and Pause / Shot / minimize / Stop buttons (plus a **⌫** clear button while a drawing is present). It's
   **draggable** (grab the REC area) and **minimizable** (collapses to a small pill), and its
   position is remembered. It stays put during captures (no flicker); minimize or move it if you want
   it out of a screenshot. The canonical "recording" state is also shown in the toolbar badge (a red ●).
@@ -137,7 +137,9 @@ or telemetry. The extension makes **no network requests of its own** (independen
 3. Talk through your feedback while you interact with the page. A translucent bar at the bottom
    shows the live transcript and flashes "📸 Screenshot N" when one is captured.
 4. Press the hotkey or the **📸 Shot** button any time you want to force a capture.
-5. Click **Stop** (in the popup or the overlay). The popup pops open showing **"Recording saved"**,
+5. Hit **⏸ Pause** on the overlay to step away — the mic turns off and nothing is captured until you
+   press **▶** to resume (the bar shows **PAUSED**).
+6. Click **Stop** (in the popup or the overlay). The popup pops open showing **"Recording saved"**,
    the bundle is written, and the agent prompt (with the file path) is copied to your clipboard
    automatically. The popup also lists your **last 5 recordings** — click one to view it or copy its
    prompt, or open the full **Recordings** library to view/share any of them.

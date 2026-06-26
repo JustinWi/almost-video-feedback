@@ -50,6 +50,10 @@ function setBadge(mode) {
     chrome.action.setBadgeText({ text: '●' });
     chrome.action.setBadgeBackgroundColor({ color: '#e11d48' });
     chrome.action.setTitle({ title: 'Recording feedback — click to stop' });
+  } else if (mode === 'paused') {
+    chrome.action.setBadgeText({ text: '❚❚' });
+    chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
+    chrome.action.setTitle({ title: 'Recording paused — click to stop' });
   } else if (mode === 'saving') {
     chrome.action.setBadgeText({ text: '…' });
     chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
@@ -98,6 +102,7 @@ async function sendToOffscreen(msg) {
 function statePayload() {
   return {
     recording: !!(session && session.active),
+    paused: !!(session && session.paused),
     saving: stopping,
     startedAt: session ? session.startedAt : null,
     screenshots: capture.getSeq(),
@@ -442,6 +447,30 @@ async function toggleRecording() {
   return startRecording();
 }
 
+// Pause/resume: keep the session alive but stop the mic + screenshot capture, so
+// nothing is recorded until the user resumes. The recognizer (mic) is torn down by
+// the content script on SESSION_PAUSED and restarted on SESSION_RESUMED.
+function togglePause() {
+  if (!session || !session.active) return statePayload();
+  session.paused = !session.paused;
+  capture.setPaused(session.paused);
+  store.patchMeta({ paused: session.paused }).catch(() => {});
+  if (session.paused) {
+    chrome.alarms.clear('heartbeat');
+    setBadge('paused');
+    notifyContent(session.tabId, { type: MSG.SESSION_PAUSED });
+  } else {
+    const s = session.settings || {};
+    if (s.triggers && s.triggers.heartbeat) {
+      chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, s.heartbeatSeconds / 60) });
+    }
+    setBadge('recording');
+    notifyContent(session.tabId, { type: MSG.SESSION_RESUMED });
+  }
+  broadcastStatus();
+  return statePayload();
+}
+
 // ------------------------------------------------------------- nav + alarms
 
 chrome.webNavigation.onCompleted.addListener((d) => {
@@ -487,7 +516,7 @@ function scheduleFollowFocus() {
 }
 
 async function followFocus() {
-  if (!session || !session.active) return;
+  if (!session || !session.active || session.paused) return; // stay put while paused
   let tab;
   try {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -590,6 +619,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (session && session.active) capture.request(TRIGGER.FORCED, {});
       return false;
 
+    case MSG.TOGGLE_PAUSE:
+      sendResponse(togglePause());
+      return false;
+
     case MSG.DELETE_RECORDING:
       (async () => {
         const ok = await discardRecording(msg.id);
@@ -605,6 +638,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           settings: session.settings,
           startedAt: session.startedAt,
           transcript: transcriptText,
+          paused: !!session.paused,
         });
       }
       return false;
@@ -737,6 +771,7 @@ async function recover() {
         tabId: meta.tabId,
         windowId: meta.windowId,
         settings,
+        paused: !!meta.paused,
       };
       capture.restore(
         { windowId: meta.windowId, tabId: meta.tabId, settings, lastUrl: meta.lastUrl, lastTitle: meta.lastTitle, startedAt: meta.startedAt },
@@ -757,9 +792,15 @@ async function recover() {
         /* ignore */
       }
       self.SCF.downloads.setDownloadUi(false);
-      setBadge('recording');
-      if (settings.triggers.heartbeat) {
-        chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, settings.heartbeatSeconds / 60) });
+      if (session.paused) {
+        capture.setPaused(true);
+        setBadge('paused');
+        // leave the heartbeat alarm cleared while paused
+      } else {
+        setBadge('recording');
+        if (settings.triggers.heartbeat) {
+          chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, settings.heartbeatSeconds / 60) });
+        }
       }
       // the content script is still running in the tab and kept its recognition
       // going across the SW restart; nothing else to restart here.

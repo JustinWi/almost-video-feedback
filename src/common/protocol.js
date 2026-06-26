@@ -18,6 +18,8 @@
     // service worker -> content
     SESSION_STARTED: 'session_started',
     SESSION_STOPPED: 'session_stopped',
+    SESSION_PAUSED: 'session_paused',
+    SESSION_RESUMED: 'session_resumed',
     SAVED_NOTICE: 'saved_notice',
     PREPARE_CAPTURE: 'prepare_capture',
     CAPTURE_DONE: 'capture_done',
@@ -33,6 +35,7 @@
     CHECK_MIC: 'check_mic',
     OPEN_PERMISSION: 'open_permission',
     FORCE_SHOT: 'force_shot',
+    TOGGLE_PAUSE: 'toggle_pause',
     DELETE_RECORDING: 'delete_recording',
 
     // service worker <-> offscreen

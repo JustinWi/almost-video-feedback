@@ -66,6 +66,12 @@
   }
   .panel.starting .reclabel { color: #fcd34d; }
   @keyframes scfspin { to { transform: rotate(360deg); } }
+
+  /* paused state — a static amber dot (no pulse) */
+  .panel.paused .dot { background: #f59e0b; box-shadow: none; animation: none; }
+  .panel.paused .reclabel { color: #fcd34d; }
+  button.pause { font-size: 12px; }
+  button.pause:hover { background: rgba(245,158,11,.28); border-color: rgba(245,158,11,.55); }
   .shots { font-size: 11.5px; opacity: .75; }
 
   .sep { width:1px; height:22px; background: rgba(255,255,255,.14); flex:0 0 auto; }
@@ -109,9 +115,10 @@
   .clearink.is-hidden { display: none !important; }
   .panel.minimized .clearink { display: none !important; }
 
-  /* minimized: just the grip (dot + timer + shots) + expand button */
+  /* minimized: just the grip (dot + REC + shots) + expand button */
   .panel.minimized .sep,
   .panel.minimized .text,
+  .panel.minimized .btns .pause,
   .panel.minimized .btns .shoot,
   .panel.minimized .btns .stop { display: none; }
   .panel.minimized { padding: 7px 10px; gap: 8px; }
