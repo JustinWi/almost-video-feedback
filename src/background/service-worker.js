@@ -11,8 +11,10 @@ importScripts(
   'image-hash.js',
   'session-store.js',
   'exporter.js',
+  'loom-timeline.js',
   'capture.js',
-  'downloads.js'
+  'downloads.js',
+  'loom-capture.js'
 );
 
 const { MSG, TRIGGER } = self.SCF;
@@ -279,6 +281,56 @@ async function startRecording(requestedTabId) {
   return statePayload();
 }
 
+// Shared finalize: build the bundle, write it, copy the clipboard prompt, archive
+// the session, and set lastResult. Used by both stopRecording and importLoom.
+async function exportAndArchive(events, meta, endedAt) {
+  const bundle = self.SCF.exporter.build(events, meta);
+  let written = { mdPath: null, folderPath: null, dir: null };
+  try {
+    written = await self.SCF.downloads.writeSession(bundle, meta.startedAt);
+  } catch (e) {
+    console.warn('[scf] export failed:', e && e.message);
+  }
+  setTimeout(() => self.SCF.downloads.setDownloadUi(true), 1500);
+
+  const clip = self.SCF.downloads.clipboardText(written.mdPath, written.dir);
+  await ensureOffscreen();
+  await sendToOffscreen({ type: MSG.COPY_TO_CLIPBOARD, text: clip });
+
+  const transcriptCount = events.filter((e) => e.type === 'transcript' && e.final).length;
+
+  try {
+    const shots = [];
+    for (const s of bundle.screenshots) {
+      const shot = await store.getScreenshot(s.seq);
+      if (shot && shot.blob) shots.push({ seq: s.seq, blob: shot.blob, mime: shot.mime });
+    }
+    const pages = [];
+    const seenPages = new Set();
+    for (const e of events) {
+      if (e.url && !seenPages.has(e.url)) { seenPages.add(e.url); pages.push({ url: e.url, title: e.title || '' }); }
+    }
+    await store.archiveSession(
+      {
+        id: String(meta.startedAt), startedAt: meta.startedAt, endedAt,
+        startedAtText: meta.startedAtText, durationMs: endedAt - meta.startedAt,
+        pages, screenshotCount: bundle.screenshots.length, transcriptCount,
+        mdPath: written.mdPath, folderPath: written.folderPath, dir: written.dir, events,
+      },
+      shots
+    );
+  } catch (e) {
+    console.warn('[scf] archive failed:', e && e.message);
+  }
+
+  lastResult = {
+    id: String(meta.startedAt), mdPath: written.mdPath, folderPath: written.folderPath, dir: written.dir,
+    clip, screenshots: bundle.screenshots.length, transcriptSegments: transcriptCount, at: endedAt,
+  };
+  await chrome.storage.local.set({ lastResult });
+  return lastResult;
+}
+
 async function stopRecording(opts) {
   if (!session || !session.active) return lastResult || statePayload();
   const openMenu = !opts || opts.openMenu !== false;
@@ -304,73 +356,10 @@ async function stopRecording(opts) {
   const endedAt = Date.now();
   await store.patchMeta({ active: false, endedAt });
 
-  // build + write the bundle
+  // build + write the bundle (shared with the Loom import path)
   const events = await store.getEvents();
   const meta = await store.getMeta();
-  const bundle = self.SCF.exporter.build(events, meta);
-  let written = { mdPath: null, folderPath: null };
-  try {
-    written = await self.SCF.downloads.writeSession(bundle, meta.startedAt);
-  } catch (e) {
-    console.warn('[scf] export failed:', e && e.message);
-  }
-  // restore the download shelf shortly after (let the md/json writes settle)
-  setTimeout(() => self.SCF.downloads.setDownloadUi(true), 1500);
-
-  const clip = self.SCF.downloads.clipboardText(written.mdPath, written.dir);
-  await ensureOffscreen(); // offscreen is only needed here, for the clipboard write
-  await sendToOffscreen({ type: MSG.COPY_TO_CLIPBOARD, text: clip });
-
-  const transcriptCount = events.filter((e) => e.type === 'transcript' && e.final).length;
-
-  // archive the session for the recordings library (persists across sessions;
-  // reset() on the next start only clears the live stores, not history)
-  try {
-    const shots = [];
-    for (const s of bundle.screenshots) {
-      const shot = await store.getScreenshot(s.seq);
-      if (shot && shot.blob) shots.push({ seq: s.seq, blob: shot.blob, mime: shot.mime });
-    }
-    const pages = [];
-    const seenPages = new Set();
-    for (const e of events) {
-      if (e.url && !seenPages.has(e.url)) {
-        seenPages.add(e.url);
-        pages.push({ url: e.url, title: e.title || '' });
-      }
-    }
-    await store.archiveSession(
-      {
-        id: String(meta.startedAt),
-        startedAt: meta.startedAt,
-        endedAt,
-        startedAtText: meta.startedAtText,
-        durationMs: endedAt - meta.startedAt,
-        pages,
-        screenshotCount: bundle.screenshots.length,
-        transcriptCount,
-        mdPath: written.mdPath,
-        folderPath: written.folderPath,
-        dir: written.dir,
-        events,
-      },
-      shots
-    );
-  } catch (e) {
-    console.warn('[scf] archive failed:', e && e.message);
-  }
-
-  lastResult = {
-    id: String(meta.startedAt),
-    mdPath: written.mdPath,
-    folderPath: written.folderPath,
-    dir: written.dir,
-    clip,
-    screenshots: bundle.screenshots.length,
-    transcriptSegments: transcriptCount,
-    at: endedAt,
-  };
-  await chrome.storage.local.set({ lastResult });
+  await exportAndArchive(events, meta, endedAt);
 
   await closeOffscreen();
   setBadge('idle');
@@ -440,6 +429,63 @@ async function deleteDownloadedFiles(dir) {
       /* ignore */
     }
   }
+}
+
+let importing = false;
+
+async function importLoom(requestedTabId) {
+  if (importing || (session && session.active)) return { error: 'busy' };
+  let tab = requestedTabId != null
+    ? await chrome.tabs.get(requestedTabId).catch(() => null)
+    : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+  if (!tab || !/(^|\.)loom\.com$/i.test(new URL(tab.url || 'about:blank').hostname)) {
+    return { error: 'not-a-loom-page' };
+  }
+
+  importing = true;
+  setBadge('saving');
+  const settings = await self.SCF_CONFIG.load();
+  await store.reset();
+  const startedAt = Date.now();
+  const startedAtText = new Date(startedAt).toLocaleString();
+  const dir = self.SCF.downloads.sessionDir(startedAt);
+  self.SCF.downloads.setDownloadUi(false);
+  await store.setMeta({ active: false, startedAt, startedAtText, tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title });
+
+  await ensureContentScript(tab.id); // make sure loom-import.js is present
+  let res;
+  try {
+    res = await self.SCF.loomCapture.runImport({
+      tabId: tab.id, windowId: tab.windowId, startedAt, settings, dir, store,
+      onProgress: (p) => broadcast({ type: MSG.IMPORT_PROGRESS, progress: p }),
+    });
+  } catch (e) {
+    res = { error: (e && e.message) || 'import-failed' };
+  }
+
+  if (res && res.error) {
+    importing = false;
+    setBadge('idle');
+    self.SCF.downloads.setDownloadUi(true);
+    const human = res.error === 'no-transcript'
+      ? 'This Loom video has no transcript to import.'
+      : 'Couldn\'t import this Loom video (' + res.error + '). Keep the Loom tab visible and try again.';
+    broadcast({ type: MSG.STATUS, state: statePayload(), error: human });
+    return { error: res.error };
+  }
+
+  const endedAt = startedAt + (res.lastMs || 0);
+  await store.patchMeta({ active: false, endedAt });
+  const events = await store.getEvents();
+  const meta = await store.getMeta();
+  await exportAndArchive(events, meta, Math.max(endedAt, meta.startedAt + 1000));
+  await closeOffscreen();
+
+  importing = false;
+  setBadge('idle');
+  broadcastStatus();
+  broadcast({ type: 'export_done', result: lastResult });
+  return lastResult;
 }
 
 async function toggleRecording() {
@@ -588,6 +634,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // a content script can't ask the SW to record an arbitrary tab
         const reqTab = sender && sender.tab ? undefined : msg.tabId;
         sendResponse(await startRecording(reqTab));
+      })();
+      return true;
+
+    case MSG.IMPORT_LOOM:
+      (async () => {
+        if (recoverPromise) await recoverPromise;
+        const reqTab = sender && sender.tab ? undefined : msg.tabId;
+        sendResponse(await importLoom(reqTab));
       })();
       return true;
 
