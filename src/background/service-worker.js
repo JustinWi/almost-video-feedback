@@ -47,6 +47,17 @@ function capturable(url) {
     !/^https?:\/\/(chrome\.google\.com\/webstore|chromewebstore\.google\.com)/i.test(url);
 }
 
+// A loom.com/share/... page — the one place where clicking the toolbar icon should
+// open the popup (Start recording vs. Import this Loom video) instead of auto-recording.
+function isLoomShareUrl(url) {
+  try {
+    const u = new URL(url);
+    return /(^|\.)loom\.com$/i.test(u.hostname) && /\/share\//.test(u.pathname);
+  } catch (e) {
+    return false;
+  }
+}
+
 function setBadge(mode) {
   if (mode === 'recording') {
     chrome.action.setBadgeText({ text: '●' });
@@ -124,7 +135,9 @@ function openPopup() {
 // Click-to-record: when the setting is on and we're idle, clear the action popup
 // so a click fires chrome.action.onClicked (which starts recording immediately).
 // While recording (or when the setting is off) the popup is restored, so a click
-// opens it as usual.
+// opens it as usual. Exception: on a Loom share page we always keep the popup so the
+// click offers a choice (Start recording vs. Import this Loom video) — auto-recording
+// there would force the user to record-then-discard before they could import.
 async function applyActionMode() {
   let clickStarts = true;
   try {
@@ -133,8 +146,15 @@ async function applyActionMode() {
   } catch (e) {
     /* default true */
   }
-  const recording = !!(session && session.active);
-  const popup = clickStarts && !recording ? '' : 'src/popup/popup.html';
+  const recording = !!(session && session.active) || importing;
+  let onLoom = false;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    onLoom = !!(tab && isLoomShareUrl(tab.url));
+  } catch (e) {
+    /* ignore — treat as not-Loom */
+  }
+  const popup = clickStarts && !recording && !onLoom ? '' : 'src/popup/popup.html';
   try {
     await chrome.action.setPopup({ popup });
   } catch (e) {
@@ -438,7 +458,7 @@ async function importLoom(requestedTabId) {
   let tab = requestedTabId != null
     ? await chrome.tabs.get(requestedTabId).catch(() => null)
     : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
-  if (!tab || !/(^|\.)loom\.com$/i.test(new URL(tab.url || 'about:blank').hostname)) {
+  if (!tab || !isLoomShareUrl(tab.url)) {
     return { error: 'not-a-loom-page' };
   }
 
@@ -466,6 +486,7 @@ async function importLoom(requestedTabId) {
   if (res && res.error) {
     importing = false;
     setBadge('idle');
+    applyActionMode();
     self.SCF.downloads.setDownloadUi(true);
     const human = res.error === 'no-transcript'
       ? 'This Loom video has no transcript to import.'
@@ -483,6 +504,7 @@ async function importLoom(requestedTabId) {
 
   importing = false;
   setBadge('idle');
+  applyActionMode(); // still on the Loom tab -> keep the popup (not auto-record)
   broadcastStatus();
   broadcast({ type: 'export_done', result: lastResult });
   return lastResult;
@@ -594,9 +616,19 @@ async function followFocus() {
   capture.request(TRIGGER.NAVIGATION, { url: tab.url, title: tab.title || null });
 }
 
-chrome.tabs.onActivated.addListener(scheduleFollowFocus);
+chrome.tabs.onActivated.addListener(() => {
+  scheduleFollowFocus();
+  applyActionMode(); // a Loom share tab forces the popup; others fall back to click-to-record
+});
 chrome.windows.onFocusChanged.addListener((winId) => {
-  if (winId !== chrome.windows.WINDOW_ID_NONE) scheduleFollowFocus();
+  if (winId !== chrome.windows.WINDOW_ID_NONE) {
+    scheduleFollowFocus();
+    applyActionMode();
+  }
+});
+// the focused tab navigating into/out of a loom.com/share URL also changes the action mode
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url && tab && tab.active) applyActionMode();
 });
 
 // click-to-record: only fires when the popup is empty (fast mode + idle)

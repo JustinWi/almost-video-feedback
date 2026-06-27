@@ -8,6 +8,19 @@
     catch (e) { return false; }
   }
   let loomTab = null; // the active tab if it's an importable Loom share page
+  // Drive the import progress bar. `total === 0` shows an empty bar (e.g. while the
+  // transcript is still being read); pass a labelOverride for non-counting phases.
+  function setImportProgress(done, total, labelOverride) {
+    const fill = $('ip-fill');
+    const label = $('ip-label');
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    if (fill) fill.style.width = pct + '%';
+    if (label) {
+      label.textContent = labelOverride
+        ? labelOverride
+        : 'Capturing frame ' + Math.min(done + 1, total) + ' / ' + total + '  ·  ' + pct + '%';
+    }
+  }
   async function detectLoom() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -356,7 +369,7 @@
     const btn = $('import-loom');
     btn.disabled = true;
     $('import-progress').hidden = false;
-    $('import-progress').textContent = 'Reading transcript…';
+    setImportProgress(0, 0, 'Reading transcript…');
     const resp = await send({ type: MSG.IMPORT_LOOM, tabId: loomTab.id });
     // success arrives via the export_done broadcast; on failure, un-stick the UI here
     if (!resp || resp.error || !resp.mdPath) {
@@ -398,11 +411,9 @@
       render();
     } else if (msg.type === MSG.IMPORT_PROGRESS) {
       const p = msg.progress || {};
-      const el = $('import-progress');
-      el.hidden = false;
-      el.textContent = p.phase === 'done'
-        ? 'Building bundle…'
-        : 'Capturing frame ' + ((p.done || 0) + 1) + ' / ' + (p.total || '?') + '…';
+      $('import-progress').hidden = false;
+      if (p.phase === 'done') setImportProgress(p.total || 0, p.total || 0, 'Building bundle…');
+      else setImportProgress(p.done || 0, p.total || 0);
     } else if (msg.type === 'export_done') {
       state.saving = false;
       state.recording = false;
