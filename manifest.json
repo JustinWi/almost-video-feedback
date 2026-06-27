@@ -50,10 +50,12 @@
       ],
       "js": [
         "src/common/protocol.js",
+        "src/background/loom-timeline.js",
         "src/content/overlay-style.js",
         "src/content/dom-descriptor.js",
         "src/content/gesture.js",
         "src/content/annotate.js",
+        "src/content/loom-import.js",
         "src/content/content.js"
       ],
       "run_at": "document_idle",
