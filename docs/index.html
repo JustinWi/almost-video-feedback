@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Almost Video Feedback — record feedback for your AI agent</title>
-<meta name="description" content="Hit record, talk through what's broken while you click, scroll, and draw on the page, then stop. Your words + the right screenshots land on your clipboard, ready to paste into your AI." />
+<meta name="description" content="Hit record, talk through what's broken while you click and scroll, then stop. Your words + the right screenshots land on your clipboard, ready to paste into your AI." />
 <meta property="og:title" content="Almost Video Feedback" />
 <meta property="og:description" content="Record video feedback for your AI… almost. Hit record, talk through what's broken, stop — the bundle's on your clipboard." />
 <meta property="og:type" content="website" />
@@ -99,10 +99,9 @@
   .card-skel::before{content:"";position:absolute;inset:18px 18px auto 18px;height:16px;width:48%;background:rgba(255,255,255,.13);border-radius:6px}
   .card-skel::after{content:"";position:absolute;left:18px;top:50px;height:11px;width:74%;background:rgba(255,255,255,.06);border-radius:6px;box-shadow:0 24px 0 rgba(255,255,255,.06)}
   .cursor{position:absolute;top:210px;left:60%;width:22px;height:22px;z-index:5;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));animation:rove 7s ease-in-out infinite}
-  /* a neon-pink "drawn" circle the cursor leaves behind — the telestrator mark */
-  .ring{position:absolute;top:196px;left:55%;width:54px;height:54px;border:2.5px solid #ff2d95;border-radius:48% 52% 51% 49%/52% 49% 51% 48%;opacity:0;box-shadow:0 0 12px rgba(255,45,149,.55);animation:ring 7s ease-in-out infinite}
+  .ring{position:absolute;top:198px;left:56%;width:50px;height:50px;border:2px solid var(--rec);border-radius:50%;opacity:0;animation:ring 7s ease-in-out infinite}
   @keyframes rove{0%,100%{transform:translate(0,0)}25%{transform:translate(-150px,-90px)}50%{transform:translate(30px,-30px)}75%{transform:translate(-60px,20px)}}
-  @keyframes ring{44%{opacity:0;transform:scale(.5) rotate(-6deg)}54%{opacity:1;transform:scale(1) rotate(0)}82%{opacity:.85;transform:scale(1.02) rotate(2deg)}92%{opacity:0;transform:scale(1.05)}}
+  @keyframes ring{46%{opacity:0;transform:scale(.4)}54%{opacity:.9;transform:scale(1)}70%{opacity:0;transform:scale(1.25)}}
   /* the recording overlay — now larger + legible */
   .overlay{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:calc(100% - 36px);
     display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;z-index:8;
@@ -129,7 +128,10 @@
   .step{border:1px solid var(--line);border-radius:14px;padding:22px 20px;background:var(--bg-2);position:relative;overflow:hidden}
   .step::before{counter-increment:s;content:"0" counter(s);position:absolute;top:12px;right:15px;font-family:var(--display);font-size:3rem;color:rgba(255,255,255,.055);line-height:1}
   .step .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.25);margin-bottom:15px}
-  .step .ic-ink{font-size:19px;line-height:1;background:rgba(255,45,149,.13);border-color:rgba(255,45,149,.3)}
+  .loom-note{display:flex;gap:18px;align-items:flex-start;max-width:760px;margin-top:26px;border:1px solid var(--line);border-radius:16px;padding:24px 26px;background:var(--bg-2)}
+  .loom-ic{font-size:30px;line-height:1;flex:0 0 auto}
+  .loom-note h3{font-size:20px;font-weight:700}
+  .loom-note p{color:var(--muted);font-size:15px;margin-top:8px;line-height:1.5}
   .step h4{font-size:17px;font-weight:700}
   .step p{color:var(--muted);font-size:14px;margin-top:7px;line-height:1.45}
 
@@ -173,7 +175,6 @@
     <div class="nav-links">
       <a href="#demo">Demo</a>
       <a href="#how">How it works</a>
-      <a href="#features">Features</a>
       <a href="#install">Install</a>
       <a class="nav-cta" href="https://github.com/JustinWi/almost-video-feedback" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
@@ -189,7 +190,6 @@
       <h1>Record video feedback for your <span class="nowrap">AI…<em>almost</em>.</span></h1>
       <ul class="bullets">
         <li><span class="dot">🎙️</span><span><b>Hit record</b> and talk through what's broken — click and scroll as you go.</span></li>
-        <li><span class="dot">✍️</span><span><b>Draw right on the page</b> to circle what's wrong — your marks land in the screenshots.</span></li>
         <li><span class="dot">📸</span><span>It <b>transcribes you</b> and grabs the <b>right screenshots</b> automatically.</span></li>
         <li><span class="dot">📋</span><span>Stop. The bundle's on your <b>clipboard</b> — paste into your AI and go.</span></li>
       </ul>
@@ -212,7 +212,7 @@
             <div class="ov-rec"><span class="rec-dot"></span>REC <span class="ov-shots" id="sh">📸 5</span></div>
             <div class="ov-sep"></div>
             <div class="ov-text"><span id="typed"></span><span class="cur"></span></div>
-            <div class="ov-btns"><b>⏸</b><b>📸</b><b>–</b><b>⏹</b></div>
+            <div class="ov-btns"><b>📸</b><b>–</b><b>⏹</b></div>
           </div>
         </div>
       </div>
@@ -248,23 +248,9 @@
     <div class="steps">
       <div class="step reveal"><div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="color:#ff7a72" aria-hidden="true"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166a5.446 5.446 0 0 1 1.45 7.09l.002.001h-.002l-5.344 9.257c.206.01.413.016.621.016 6.627 0 12-5.373 12-12 0-1.54-.29-3.011-.818-4.364zM12 16.364a4.364 4.364 0 1 1 0-8.728 4.364 4.364 0 0 1 0 8.728z"/></svg></div><h4>Install Chrome Extension</h4><p>Load it in a minute — free, no account.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#ff453a"/></svg></div><h4>Record</h4><p>Click the icon or hit a hotkey.</p></div>
-      <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><path d="M12 3v9m0 0a3 3 0 003-3V6a3 3 0 00-6 0v3a3 3 0 003 3zM6 11a6 6 0 0012 0M12 18v3"/></svg></div><h4>Talk &amp; draw</h4><p>Describe bugs while you click, scroll, and circle things on the page.</p></div>
+      <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><path d="M12 3v9m0 0a3 3 0 003-3V6a3 3 0 00-6 0v3a3 3 0 003 3zM6 11a6 6 0 0012 0M12 18v3"/></svg></div><h4>Talk &amp; point</h4><p>Describe bugs while you click and scroll.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></div><h4>Stop</h4><p>The bundle copies to your clipboard.</p></div>
       <div class="step reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff7a72" stroke-width="1.8"><path d="M4 12h14m0 0l-5-5m5 5l-5 5"/></svg></div><h4>Paste &amp; run</h4><p>Drop it into your AI agent. Done.</p></div>
-    </div>
-  </div>
-</section>
-
-<!-- FEATURES -->
-<section id="features">
-  <div class="wrap">
-    <span class="kicker reveal">More than a screen recorder</span>
-    <h2 class="reveal">Built to say exactly what you mean.</h2>
-    <div class="steps">
-      <div class="step reveal"><div class="ic ic-ink">✍️</div><h4>Draw to point</h4><p>Right-drag — or Control-Option on a Mac — to circle and scribble right on the page, even over embedded iframes. Your marks ride along in the screenshots.</p></div>
-      <div class="step reveal"><div class="ic ic-ink">⏸</div><h4>Pause anytime</h4><p>Step away mid-recording — the mic goes quiet and nothing's captured until you hit resume.</p></div>
-      <div class="step reveal"><div class="ic ic-ink">🎯</div><h4>Smart screenshots</h4><p>It grabs the moments that matter — clicks, text selections, page changes — and culls the near-duplicates so your agent isn't drowned.</p></div>
-      <div class="step reveal"><div class="ic ic-ink">🔒</div><h4>Yours to keep</h4><p>Everything stays on your machine — no servers, no account. Review, share, or delete any recording.</p></div>
     </div>
   </div>
 </section>
@@ -292,6 +278,20 @@
       <div class="pt">
         <b>It stays on your machine.</b> No servers, no accounts, no telemetry — screenshots and transcripts live in your Downloads and local storage.
         <p>Voice is transcribed by Chrome's built-in speech engine (audio goes to Google, like voice typing). The extension sends nothing else. <a href="https://github.com/JustinWi/almost-video-feedback#privacy--security" style="color:var(--mint)" target="_blank" rel="noopener">Details →</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LOOM IMPORT -->
+<section id="loom">
+  <div class="wrap">
+    <span class="kicker reveal">New</span>
+    <div class="loom-note reveal">
+      <span class="loom-ic">🎞️</span>
+      <div>
+        <h3>Already recorded a Loom?</h3>
+        <p>On a <code>loom.com/share/…</code> page, click <b>Import this Loom video</b> and its transcript + frames become the same feedback bundle — no re-recording.</p>
       </div>
     </div>
   </div>
