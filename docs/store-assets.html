@@ -8,30 +8,37 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
 <style>
-  :root{--bg:#0c0b0e;--bg-2:#141318;--ink:#edeae3;--muted:#9b968c;--rec:#ff453a;--mint:#7cf5b0;--line:rgba(255,255,255,.12)}
+  :root{--bg:#0c0b0e;--bg-2:#141318;--ink:#edeae3;--muted:#9b968c;--rec:#ff453a;--mint:#7cf5b0;--ink-pink:#ff2d95;--line:rgba(255,255,255,.12)}
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#050507;color:var(--ink);font-family:'Hanken Grotesk',system-ui,sans-serif;padding:30px}
-  .note{max-width:820px;margin:0 auto 26px;font-size:14.5px;color:#cbd5e1;line-height:1.6;font-family:'JetBrains Mono',monospace}
+  .note{max-width:880px;margin:0 auto 26px;font-size:14.5px;color:#cbd5e1;line-height:1.6;font-family:'JetBrains Mono',monospace}
   .note b{color:var(--mint)}
   .label{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--rec);margin:34px 0 8px;font-weight:700;letter-spacing:.05em}
   .frame{outline:1px dashed rgba(255,255,255,.18);outline-offset:6px;overflow:hidden;position:relative;
     background:radial-gradient(900px 500px at 78% -8%,rgba(255,69,58,.13),transparent 60%),linear-gradient(165deg,#15141a,#0b0a0e)}
+
+  /* Isolation mode: open ?shot=ID to render ONLY that box at (0,0) for a pixel-exact headless capture. */
+  body.shot{padding:0;background:#050507}
+  body.shot .note,body.shot .label,body.shot .frame{display:none}
+  body.shot .frame.on{display:flex;outline:none;outline-offset:0;margin:0}
+
   .rec-dot{display:inline-block;width:.62em;height:.62em;border-radius:50%;background:var(--rec);box-shadow:0 0 0 0 rgba(255,69,58,.6);animation:pulse 1.6s infinite}
   @keyframes pulse{70%{box-shadow:0 0 0 .7em rgba(255,69,58,0)}100%{box-shadow:0 0 0 0 rgba(255,69,58,0)}}
-  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);padding:7px 15px;border-radius:99px}
+  .eyebrow{display:inline-flex;align-self:flex-start;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);padding:7px 15px;border-radius:99px}
   .serif{font-family:'Instrument Serif',serif;font-weight:400;letter-spacing:-.01em}
   em{font-style:italic;color:var(--rec)}
   .mono{font-family:'JetBrains Mono',monospace}
 
-  /* recording overlay mock */
+  /* recording overlay mock (current: REC + shot count + transcript + pause/shot/min/stop — no timer) */
   .overlay{display:inline-flex;align-items:center;gap:14px;padding:14px 18px;border-radius:16px;
     background:rgba(17,24,39,.92);border:1px solid rgba(255,255,255,.14);box-shadow:0 22px 60px -16px rgba(0,0,0,.8)}
   .ov-rec{display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#fecdd3}
+  .ov-rec .sh{color:#9aa0ab}
   .ov-sep{width:1px;height:24px;background:rgba(255,255,255,.16)}
   .ov-text{font-size:15px;color:#eef0f3}
   .ov-text i{color:var(--rec);font-style:normal}
   .ov-btns{display:flex;gap:7px}
-  .ov-btns b{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:14px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);font-weight:400}
+  .ov-btns b{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:13px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);font-weight:400}
 
   /* SCREENSHOT 1 — 1280x800 hero */
   .s1{width:1280px;height:800px;padding:96px 90px;display:flex;flex-direction:column;justify-content:center}
@@ -49,6 +56,21 @@
   .s2 .step h3{font-size:24px;margin-top:8px}
   .s2 .step p{color:var(--muted);font-size:16px;margin-top:8px;line-height:1.4}
 
+  /* SCREENSHOT 3 — 1280x800 "two ways in" (draw + Loom import) */
+  .s3{width:1280px;height:800px;padding:88px 90px;display:flex;flex-direction:column;justify-content:center}
+  .s3 h2{font-size:60px;line-height:1.03;max-width:20ch}
+  .s3 .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:50px}
+  .s3 .col{border:1px solid var(--line);border-radius:18px;padding:34px 32px;background:rgba(255,255,255,.025)}
+  .s3 .col .ic{font-size:30px}
+  .s3 .col h3{font-size:27px;margin-top:14px}
+  .s3 .col p{color:var(--muted);font-size:17px;margin-top:10px;line-height:1.45}
+  .s3 .draw{margin-top:22px;height:64px;border-radius:12px;border:1px dashed rgba(255,255,255,.14);position:relative;background:rgba(255,255,255,.015)}
+  .s3 .draw::after{content:"";position:absolute;left:48px;top:14px;width:120px;height:36px;border:3px solid var(--ink-pink);border-radius:48% 52% 51% 49%/52% 49% 51% 48%;box-shadow:0 0 12px rgba(255,45,149,.55);transform:rotate(-3deg)}
+  .s3 .loomcard{margin-top:22px;border-radius:12px;border:1px solid var(--line);background:#0e0d12;overflow:hidden}
+  .s3 .loomcard .bar{height:34px;background:rgba(255,255,255,.04);display:flex;align-items:center;gap:7px;padding:0 12px}
+  .s3 .loomcard .bar i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.18)}
+  .s3 .loombtn{margin:14px;padding:11px;border-radius:10px;background:linear-gradient(180deg,#6366f1,#4f46e5);color:#fff;font-weight:700;text-align:center;font-size:15px}
+
   /* SMALL PROMO TILE — 440x280 */
   .tile{width:440px;height:280px;padding:34px;display:flex;flex-direction:column;justify-content:space-between}
   .tile .logo{width:46px;height:46px;border-radius:13px;background:#0c0b0e;border:1px solid var(--line);display:grid;place-items:center}
@@ -59,49 +81,72 @@
   /* MARQUEE — 1400x560 */
   .mq{width:1400px;height:560px;padding:0 100px;display:flex;align-items:center;gap:60px}
   .mq-l{flex:1}
-  .mq h1{font-size:88px;line-height:.98;margin-top:18px}
-  .mq p{color:var(--muted);font-size:22px;margin-top:24px;max-width:24ch}
+  .mq h1{font-size:84px;line-height:.98;margin-top:18px}
+  .mq p{color:var(--muted);font-size:22px;margin-top:24px;max-width:26ch}
   .mq-r{flex:0 0 auto}
 </style>
 </head>
 <body>
   <div class="note">
-    <b>How to use:</b> set your browser zoom to <b>100%</b>, then screenshot each dashed box (the box itself is the exact pixel size — the label above it is not part of the image). Save as PNG and upload to the Chrome Web Store listing. On a HiDPI/Retina display your capture may be 2× — that's fine, the store accepts larger and downscales.
+    <b>How to use:</b> these boxes are the exact pixel sizes the Chrome Web Store wants. To capture one cleanly, open this file with <b>?shot=&lt;id&gt;</b> (ids: <b>s1, s2, s3, tile, marquee</b>) and screenshot — or just run <b>scripts/gen-store-images</b> (headless Chrome). Otherwise set zoom to 100% and screenshot each dashed box.
   </div>
 
-  <div class="label">▸ SCREENSHOT 1 — 1280 × 800 (required)</div>
-  <div class="frame s1">
+  <div class="label">▸ SCREENSHOT 1 — 1280 × 800 (required) — id: s1</div>
+  <div class="frame s1" data-shot="s1">
     <span class="eyebrow"><span class="rec-dot"></span> Chrome extension · Free · Open source</span>
     <h1 class="serif">Record video feedback for your <span style="white-space:nowrap">AI…<em>almost</em>.</span></h1>
     <div class="ov-wrap">
       <div class="overlay">
-        <div class="ov-rec"><span class="rec-dot"></span> REC <span style="color:#cdd0d6">0:14</span> <span style="color:#9aa0ab">📸 5</span></div>
+        <div class="ov-rec"><span class="rec-dot"></span> REC <span class="sh">📸 5</span></div>
         <div class="ov-sep"></div>
         <div class="ov-text">this save button is misaligned… and the total shows zero<i>|</i></div>
-        <div class="ov-btns"><b>📸</b><b>–</b><b>⏹</b></div>
+        <div class="ov-btns"><b>⏸</b><b>📸</b><b>–</b><b>⏹</b></div>
       </div>
     </div>
     <div class="bullets">
       <span>🎙️ <b>Talk</b> through bugs</span>
-      <span>📸 <b>Auto-screenshots</b> the page</span>
+      <span>✍️ <b>Draw</b> on the page</span>
       <span>📋 <b>One paste</b> into your AI</span>
     </div>
   </div>
 
-  <div class="label">▸ SCREENSHOT 2 — 1280 × 800</div>
-  <div class="frame s2">
+  <div class="label">▸ SCREENSHOT 2 — 1280 × 800 — id: s2</div>
+  <div class="frame s2" data-shot="s2">
     <span class="eyebrow"><span class="rec-dot"></span> How it works</span>
     <h2 class="serif">Install once, then mostly just talk.</h2>
     <div class="steps">
       <div class="step"><div class="n">01</div><h3>Record</h3><p>Click the icon or hit a hotkey.</p></div>
-      <div class="step"><div class="n">02</div><h3>Talk &amp; point</h3><p>Describe bugs as you click and scroll.</p></div>
+      <div class="step"><div class="n">02</div><h3>Talk &amp; point</h3><p>Describe bugs as you click, scroll, and draw.</p></div>
       <div class="step"><div class="n">03</div><h3>Stop</h3><p>The bundle copies to your clipboard.</p></div>
       <div class="step"><div class="n">04</div><h3>Paste</h3><p>Drop it into your AI agent. Done.</p></div>
     </div>
   </div>
 
-  <div class="label">▸ SMALL PROMO TILE — 440 × 280</div>
-  <div class="frame tile">
+  <div class="label">▸ SCREENSHOT 3 — 1280 × 800 — id: s3</div>
+  <div class="frame s3" data-shot="s3">
+    <span class="eyebrow"><span class="rec-dot"></span> Two ways in</span>
+    <h2 class="serif">Point at it. Or import a <em>Loom</em>.</h2>
+    <div class="cols">
+      <div class="col">
+        <div class="ic">✍️</div>
+        <h3>Draw on the page</h3>
+        <p>Right-drag to circle what's wrong — your marks land in the screenshots.</p>
+        <div class="draw"></div>
+      </div>
+      <div class="col">
+        <div class="ic">🎞️</div>
+        <h3>Import a Loom</h3>
+        <p>Turn an existing Loom — transcript and frames — into the same bundle.</p>
+        <div class="loomcard">
+          <div class="bar"><i></i><i></i><i></i></div>
+          <div class="loombtn">Import this Loom video</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="label">▸ SMALL PROMO TILE — 440 × 280 — id: tile</div>
+  <div class="frame tile" data-shot="tile">
     <div class="logo"><span></span></div>
     <div>
       <h3 class="serif">Almost Video<br/>Feedback</h3>
@@ -109,21 +154,32 @@
     </div>
   </div>
 
-  <div class="label">▸ MARQUEE PROMO — 1400 × 560 (optional)</div>
-  <div class="frame mq">
+  <div class="label">▸ MARQUEE PROMO — 1400 × 560 (optional) — id: marquee</div>
+  <div class="frame mq" data-shot="marquee">
     <div class="mq-l">
       <span class="eyebrow"><span class="rec-dot"></span> Chrome extension</span>
-      <h1 class="serif">Talk to your AI like it's <em>watching</em>.</h1>
-      <p>Record spoken + visual feedback. Paste one file into your agent.</p>
+      <h1 class="serif">Feedback your AI can <em>see</em>.</h1>
+      <p>Talk, point, and draw on the page — paste one file into your agent.</p>
     </div>
     <div class="mq-r">
       <div class="overlay">
-        <div class="ov-rec"><span class="rec-dot"></span> REC <span style="color:#cdd0d6">0:21</span></div>
+        <div class="ov-rec"><span class="rec-dot"></span> REC <span class="sh">📸 5</span></div>
         <div class="ov-sep"></div>
         <div class="ov-text">fix the alignment here<i>|</i></div>
-        <div class="ov-btns"><b>⏹</b></div>
+        <div class="ov-btns"><b>⏸</b><b>⏹</b></div>
       </div>
     </div>
   </div>
+
+  <script>
+    // ?shot=ID -> isolate one box at (0,0) for a pixel-exact headless screenshot.
+    (function () {
+      var id = new URLSearchParams(location.search).get('shot');
+      if (!id) return;
+      document.body.classList.add('shot');
+      var el = document.querySelector('.frame[data-shot="' + id + '"]');
+      if (el) el.classList.add('on');
+    })();
+  </script>
 </body>
 </html>
