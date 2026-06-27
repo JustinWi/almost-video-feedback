@@ -7,6 +7,7 @@ const assert = require('assert');
 const imageHash = require('../src/background/image-hash.js');
 const gesture = require('../src/content/gesture.js');
 const exporter = require('../src/background/exporter.js');
+const loomTimeline = require('../src/background/loom-timeline.js');
 const zip = require('../src/common/zip.js');
 const protocol = require('../src/common/protocol.js');
 
@@ -237,6 +238,44 @@ test('empty session still builds', () => {
   const r = exporter.build([], {});
   assert.ok(typeof r.markdown === 'string' && r.markdown.length > 0);
   assert.strictEqual(r.screenshots.length, 0);
+});
+
+console.log('loom-timeline:');
+
+test('parseTimestamp parses mm:ss and h:mm:ss to ms', () => {
+  assert.strictEqual(loomTimeline.parseTimestamp('00:00'), 0);
+  assert.strictEqual(loomTimeline.parseTimestamp('00:09'), 9000);
+  assert.strictEqual(loomTimeline.parseTimestamp('01:05'), 65000);
+  assert.strictEqual(loomTimeline.parseTimestamp('1:02:03'), 3723000);
+});
+
+test('parseTimestamp rejects junk', () => {
+  assert.strictEqual(loomTimeline.parseTimestamp('hello'), null);
+  assert.strictEqual(loomTimeline.parseTimestamp(''), null);
+  assert.strictEqual(loomTimeline.parseTimestamp(null), null);
+});
+
+test('buildTargets always includes t=0 and every segment time, sorted+unique', () => {
+  const r = loomTimeline.buildTargets([9000, 9000, 2000], { floorMs: 15000, maxFrames: 300 });
+  assert.deepStrictEqual(r, [0, 2000, 9000]);
+});
+
+test('buildTargets fills gaps larger than floorMs', () => {
+  // 0 -> 40000 is a 40s gap; floor 15s -> insert 15000, 30000
+  const r = loomTimeline.buildTargets([40000], { floorMs: 15000, maxFrames: 300 });
+  assert.deepStrictEqual(r, [0, 15000, 30000, 40000]);
+});
+
+test('buildTargets respects maxFrames by even subsampling (keeps first + last)', () => {
+  const segs = [10000, 20000, 30000, 40000, 50000]; // anchors incl 0 -> 6 targets
+  const r = loomTimeline.buildTargets(segs, { floorMs: 60000, maxFrames: 3 });
+  assert.strictEqual(r.length, 3);
+  assert.strictEqual(r[0], 0);
+  assert.strictEqual(r[r.length - 1], 50000);
+});
+
+test('buildTargets on empty segments yields just [0]', () => {
+  assert.deepStrictEqual(loomTimeline.buildTargets([], { floorMs: 15000, maxFrames: 300 }), [0]);
 });
 
 console.log('zip:');
