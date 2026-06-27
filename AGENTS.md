@@ -94,6 +94,7 @@ README's install link points at `/releases/latest`).
 |---|---|
 | Orchestration | `src/background/service-worker.js` |
 | Capture + dedup | `src/background/capture.js`, `image-hash.js` |
+| Loom import | `src/content/loom-import.js` (scrape transcript + drive player), `src/background/loom-capture.js` (seek + `captureVisibleTab` + crop), `src/background/loom-timeline.js` (pure target-time math) |
 | Storage (live + history) | `src/background/session-store.js` (IndexedDB) |
 | Output | `src/background/exporter.js`, `downloads.js`, `src/common/zip.js` |
 | Transcription + overlay + input | `src/content/*` (Web Speech runs here, **not** in the offscreen doc) |

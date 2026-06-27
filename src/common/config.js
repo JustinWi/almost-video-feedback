@@ -38,6 +38,10 @@
     minCaptureIntervalMs: 650, // captureVisibleTab is browser-capped ~2/s
     maxScreenshots: 300,
 
+    // Loom import (turning a loom.com/share video into a bundle)
+    loomFrameFloorSeconds: 15, // if two transcript timestamps are >this apart, fill the gap with extra frames
+    loomSeekSettleMs: 350, // wait after seeking the player before capturing, so the frame has painted
+
     // Trigger toggles
     triggers: {
       start: true,

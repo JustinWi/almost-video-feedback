@@ -25,6 +25,7 @@
     scroll: '📜 Scrolled',
     heartbeat: '⏱️ Periodic snapshot',
     forced: '📸 Manual screenshot',
+    frame: '🎞️ Video frame',
   };
 
   function pad(n, w) {

@@ -55,6 +55,8 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),
   persisted to IndexedDB as it happens. On stop, each spoken segment is attached to the nearest
   screenshot in time and the whole thing is rendered chronologically.
+- **Loom import**: on a `loom.com/share/...` page, click *Import this Loom video* in the popup to
+  turn the page's transcript + frames into the same `feedback.md` bundle — no live recording needed.
 
 ## Output
 

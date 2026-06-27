@@ -56,6 +56,14 @@
     MIC_LISTENING: 'mic_listening', // recognizer is actually capturing audio now
     COPY_TO_CLIPBOARD: 'copy_to_clipboard',
     KEEPALIVE: 'keepalive',
+
+    // popup -> service worker: import a Loom share video into a bundle
+    IMPORT_LOOM: 'import_loom',
+    // service worker <-> content (Loom page): scrape transcript / seek player
+    LOOM_PROBE: 'loom_probe',
+    LOOM_SEEK: 'loom_seek',
+    // service worker -> popup: import progress ticks
+    IMPORT_PROGRESS: 'import_progress',
   };
 
   // Screenshot trigger types. Priority triggers bypass the dedup cull.
@@ -71,6 +79,7 @@
     HEARTBEAT: 'heartbeat',
     FORCED: 'forced',
     ANNOTATE: 'annotate',
+    FRAME: 'frame', // a frame grabbed from an imported video (Loom import)
   };
 
   // Priority triggers bypass the dedup cull: deliberate, high-intent actions the

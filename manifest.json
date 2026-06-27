@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Almost Video Feedback",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Record spoken + visual feedback on any web app, then hand your AI agent one file of screenshots tied to what you said.",
   "homepage_url": "https://justinwi.github.io/almost-video-feedback/",
   "minimum_chrome_version": "116",
@@ -50,10 +50,12 @@
       ],
       "js": [
         "src/common/protocol.js",
+        "src/background/loom-timeline.js",
         "src/content/overlay-style.js",
         "src/content/dom-descriptor.js",
         "src/content/gesture.js",
         "src/content/annotate.js",
+        "src/content/loom-import.js",
         "src/content/content.js"
       ],
       "run_at": "document_idle",
