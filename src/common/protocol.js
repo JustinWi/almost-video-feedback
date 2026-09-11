@@ -51,11 +51,15 @@
     TOGGLE_PEN: 'toggle_pen', // SW -> top frame: the draw shortcut was pressed
     GET_SHORTCUTS: 'get_shortcuts', // content -> SW: { commandName: 'shortcut label' } for tooltips
 
-    // service worker <-> recognizer iframe (Web Speech at the extension origin)
+    // service worker <-> recognizer (page iframe, or the offscreen fallback)
     RECOGNIZER_STOP: 'recognizer_stop',
     TRANSCRIPT_SEGMENT: 'transcript_segment',
     TRANSCRIBE_ERROR: 'transcribe_error',
     MIC_LISTENING: 'mic_listening', // recognizer is actually capturing audio now
+    // SW -> offscreen: run recognition there when the page blocks the iframe's mic
+    OFFSCREEN_RECOGNIZE: 'offscreen_recognize',
+    // SW -> content: last resort, run recognition in the page itself ({ recMode: 'page' })
+    REC_MODE: 'rec_mode',
 
     // content (overlay, while paused) <-> service worker: fix misheard words
     GET_TRANSCRIPT: 'get_transcript', // -> { segments: [{ id, t, text }] }

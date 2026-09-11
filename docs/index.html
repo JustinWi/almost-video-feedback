@@ -128,6 +128,10 @@
   .step{border:1px solid var(--line);border-radius:14px;padding:22px 20px;background:var(--bg-2);position:relative;overflow:hidden}
   .step::before{counter-increment:s;content:"0" counter(s);position:absolute;top:12px;right:15px;font-family:var(--display);font-size:3rem;color:rgba(255,255,255,.055);line-height:1}
   .step .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.25);margin-bottom:15px}
+  .loom-note{display:flex;gap:18px;align-items:flex-start;max-width:760px;margin-top:26px;border:1px solid var(--line);border-radius:16px;padding:24px 26px;background:var(--bg-2)}
+  .loom-ic{font-size:30px;line-height:1;flex:0 0 auto}
+  .loom-note h3{font-size:20px;font-weight:700}
+  .loom-note p{color:var(--muted);font-size:15px;margin-top:8px;line-height:1.5}
   .step h4{font-size:17px;font-weight:700}
   .step p{color:var(--muted);font-size:14px;margin-top:7px;line-height:1.45}
 
@@ -279,11 +283,25 @@
   </div>
 </section>
 
+<!-- LOOM IMPORT -->
+<section id="loom">
+  <div class="wrap">
+    <span class="kicker reveal">New</span>
+    <div class="loom-note reveal">
+      <span class="loom-ic">🎞️</span>
+      <div>
+        <h3>Already recorded a Loom?</h3>
+        <p>On a <code>loom.com/share/…</code> page, click <b>Import this Loom video</b> and its transcript + frames become the same feedback bundle — no re-recording.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- CTA -->
 <section class="band">
   <div class="wrap">
     <span class="kicker reveal">Almost, but enough</span>
-    <h2 class="reveal">Talk to your AI like it's <em>watching</em>.</h2>
+    <h2 class="reveal">Feedback your AI can <em>see</em>.</h2>
     <div class="cta-row reveal">
       <a class="btn btn-primary" href="#install">Install <svg class="chrome" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166a5.446 5.446 0 0 1 1.45 7.09l.002.001h-.002l-5.344 9.257c.206.01.413.016.621.016 6.627 0 12-5.373 12-12 0-1.54-.29-3.011-.818-4.364zM12 16.364a4.364 4.364 0 1 1 0-8.728 4.364 4.364 0 0 1 0 8.728z"/></svg> Extension</a>
       <a class="btn btn-ghost" href="https://github.com/JustinWi/almost-video-feedback" target="_blank" rel="noopener">Read the source</a>

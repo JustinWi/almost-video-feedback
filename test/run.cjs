@@ -12,6 +12,7 @@ const zip = require('../src/common/zip.js');
 const protocol = require('../src/common/protocol.js');
 const speech = require('../src/common/speech.js');
 const transcript = require('../src/common/transcript.js');
+const micTriage = require('../src/background/mic-triage.js');
 
 let passed = 0;
 let failed = 0;
@@ -333,7 +334,7 @@ test('no movement or a perfect diagonal snaps horizontal', () => {
   assert.deepStrictEqual(gesture.snapAxis({ x: 0, y: 0 }, { x: 30, y: 30 }), { x: 30, y: 0 });
 });
 
-console.log('speech (mic fallback):');
+console.log('speech (page-mic recognizer):');
 
 test('permission errors are recognized, others are not', () => {
   assert.ok(speech.isPermissionError('not-allowed'));
@@ -341,19 +342,6 @@ test('permission errors are recognized, others are not', () => {
   assert.ok(!speech.isPermissionError('no-speech'));
   assert.ok(!speech.isPermissionError('aborted'));
   assert.ok(!speech.isPermissionError(undefined));
-});
-
-test('iframe blocked by the page (claude.ai) falls back to the page mic', () => {
-  assert.strictEqual(speech.nextMicMode('frame', 'not-allowed'), 'page');
-});
-
-test('page mic blocked too is final', () => {
-  assert.strictEqual(speech.nextMicMode('page', 'not-allowed'), 'blocked');
-});
-
-test('non-permission errors keep the current mode', () => {
-  assert.strictEqual(speech.nextMicMode('frame', 'no-speech'), 'frame');
-  assert.strictEqual(speech.nextMicMode('page', 'network'), 'page');
 });
 
 console.log('transcript (edit while paused):');
@@ -393,6 +381,89 @@ test('applyEdit with empty text deletes the segment', () => {
 test('applyEdit never touches non-transcript events or unknown ids', () => {
   assert.deepStrictEqual(transcript.applyEdit(txEvents, 2, 'x'), txEvents);
   assert.deepStrictEqual(transcript.applyEdit(txEvents, 99, 'x'), txEvents);
+});
+
+// ---- mic-triage: classify why speech recognition failed ----
+
+test('mic-triage: page Permissions-Policy block -> page-blocked + offscreen fallback', () => {
+  const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: false, permState: 'granted' });
+  assert.deepStrictEqual(v, { kind: 'page-blocked', fallback: true });
+});
+
+test('mic-triage: policy verdict wins even with permission unknown', () => {
+  const v = micTriage.classify({ error: 'service-not-allowed', src: 'iframe', policyAllowed: false, permState: null });
+  assert.deepStrictEqual(v, { kind: 'page-blocked', fallback: true });
+});
+
+test('mic-triage: permission prompt (the "Allow this time" trap) -> permission, no fallback', () => {
+  const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: true, permState: 'prompt' });
+  assert.deepStrictEqual(v, { kind: 'permission', fallback: false });
+});
+
+test('mic-triage: permission denied -> permission, no fallback', () => {
+  const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: null, permState: 'denied' });
+  assert.deepStrictEqual(v, { kind: 'permission', fallback: false });
+});
+
+test('mic-triage: not-allowed despite granted permission -> ambiguous, fallback probes', () => {
+  const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: true, permState: 'granted' });
+  assert.deepStrictEqual(v, { kind: 'blocked', fallback: true });
+});
+
+test('mic-triage: not-allowed with no diagnostics at all -> fallback probes', () => {
+  const v = micTriage.classify({ error: 'not-allowed' });
+  assert.deepStrictEqual(v, { kind: 'blocked', fallback: true });
+});
+
+test('mic-triage: service-not-allowed with granted mic -> service, one fallback try', () => {
+  const v = micTriage.classify({ error: 'service-not-allowed', src: 'iframe', policyAllowed: true, permState: 'granted' });
+  assert.deepStrictEqual(v, { kind: 'service', fallback: true });
+});
+
+test('mic-triage: service-not-allowed with ungranted mic reads as permission', () => {
+  const v = micTriage.classify({ error: 'service-not-allowed', src: 'iframe', policyAllowed: true, permState: 'prompt' });
+  assert.deepStrictEqual(v, { kind: 'permission', fallback: false });
+});
+
+test('mic-triage: offscreen source never falls back further', () => {
+  const v = micTriage.classify({ error: 'not-allowed', src: 'offscreen', policyAllowed: null, permState: 'granted' });
+  assert.strictEqual(v.fallback, false);
+});
+
+test('mic-triage: hardware/no-audio failures are terminal', () => {
+  assert.deepStrictEqual(micTriage.classify({ error: 'audio-capture', src: 'iframe' }), { kind: 'no-audio', fallback: false });
+  assert.deepStrictEqual(micTriage.classify({ error: 'offscreen-no-audio', src: 'offscreen' }), { kind: 'no-audio', fallback: false });
+});
+
+test('mic-triage: transient recognizer errors classify as other, no UI reaction', () => {
+  for (const error of ['no-speech', 'network', 'aborted', 'restart-failed', 'speech-recognition-unavailable']) {
+    const v = micTriage.classify({ error, src: 'iframe' });
+    assert.deepStrictEqual(v, { kind: 'other', fallback: false }, error);
+  }
+});
+
+// ---- last resort: speech in the page itself (claude.ai) ----
+
+test('mic-triage: offscreen heard nothing -> try the page mic (Chrome asks once per site)', () => {
+  const v = micTriage.classify({ error: 'offscreen-no-audio', src: 'offscreen' });
+  assert.strictEqual(micTriage.pageFallback(v, 'offscreen'), true);
+});
+
+test('mic-triage: offscreen refused too (page block / permission) -> try the page mic', () => {
+  for (const kind of ['page-blocked', 'blocked', 'permission']) {
+    assert.strictEqual(micTriage.pageFallback({ kind, fallback: false }, 'offscreen'), true, kind);
+  }
+});
+
+test('mic-triage: a dead speech service or transient error never moves to the page', () => {
+  assert.strictEqual(micTriage.pageFallback({ kind: 'service', fallback: false }, 'offscreen'), false);
+  assert.strictEqual(micTriage.pageFallback({ kind: 'other', fallback: false }, 'offscreen'), false);
+});
+
+test('mic-triage: only an offscreen failure can lead to the page mic', () => {
+  assert.strictEqual(micTriage.pageFallback({ kind: 'page-blocked', fallback: true }, 'iframe'), false);
+  assert.strictEqual(micTriage.pageFallback({ kind: 'blocked', fallback: true }, 'page'), false);
+  assert.strictEqual(micTriage.pageFallback(null, 'offscreen'), false);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

@@ -1,14 +1,13 @@
 /*
- * Web Speech wrapper shared by the two places transcription can run:
- *   - 'frame': the hidden extension-origin recognizer iframe (src/recognizer/*).
- *     Uses the EXTENSION's one-time microphone grant, so most sites never prompt.
- *   - 'page':  directly in the top-frame content script, using the page's own
- *     microphone permission (Chrome asks once per site). The fallback for sites
- *     whose Permissions-Policy only lets their own origin use the mic — e.g.
- *     claude.ai sends `microphone=(self "https://*.claudemcpcontent.com")`, so an
- *     extension iframe can never get the mic there.
+ * Web Speech recognizer for the LAST-RESORT fallback: it runs directly in the
+ * top-frame content script, on the page's own microphone permission (Chrome asks
+ * once per site). Used only after both the extension-origin iframe and the
+ * offscreen document failed on a site — e.g. claude.ai sends
+ * `microphone=(self "https://*.claudemcpcontent.com")`, which refuses the iframe.
+ * The service worker decides when (see mic-triage.js pageFallback) and tells the
+ * content script via REC_MODE. Every message it posts carries src: 'page'.
  *
- * Classic script -> globalThis.SCF_SPEECH; the pure helpers are also exported
+ * Classic script -> globalThis.SCF_SPEECH; isPermissionError is also exported
  * for the Node unit tests.
  */
 (function (root) {
@@ -22,26 +21,16 @@
   }
 
   /**
-   * Where to run transcription after an error. A permission error in the iframe
-   * falls back to the page; a permission error in the page is final ('blocked').
-   * Any other error (no-speech, network, aborted…) keeps the current mode.
-   */
-  function nextMicMode(mode, err) {
-    if (!isPermissionError(err)) return mode;
-    return mode === 'frame' ? 'page' : 'blocked';
-  }
-
-  /**
    * Build a self-restarting continuous recognizer.
-   * @param {{lang:string, source:'frame'|'page', post:(msg:object)=>void}} opts
+   * @param {{lang:string, post:(msg:object)=>void}} opts
    * @returns {{start:()=>void, stop:()=>void}}
    */
   function create(opts) {
     const MSG = root.SCF.MSG;
     const SR = root.SpeechRecognition || root.webkitSpeechRecognition;
     const lang = opts.lang || 'en-US';
-    const source = opts.source;
     const post = opts.post;
+    const src = 'page';
 
     let recognition = null;
     let wantRunning = false;
@@ -55,12 +44,10 @@
       r.lang = lang;
       r.onstart = () => {
         running = true;
-        post({ type: MSG.MIC_LISTENING });
+        post({ type: MSG.MIC_LISTENING, src });
       };
-      // fires once the user agent actually starts capturing audio — the truest
-      // "we're listening now" signal for the overlay
       r.onaudiostart = () => {
-        post({ type: MSG.MIC_LISTENING });
+        post({ type: MSG.MIC_LISTENING, src });
       };
       r.onresult = (event) => {
         let interim = '';
@@ -69,19 +56,19 @@
           const text = res[0] && res[0].transcript ? res[0].transcript : '';
           if (res.isFinal) {
             const f = text.trim();
-            if (f) post({ type: MSG.TRANSCRIPT_SEGMENT, final: true, text: f, t: Date.now() });
+            if (f) post({ type: MSG.TRANSCRIPT_SEGMENT, final: true, text: f, t: Date.now(), src });
           } else {
             interim += text;
           }
         }
         if (interim.trim()) {
-          post({ type: MSG.TRANSCRIPT_SEGMENT, final: false, text: interim.trim(), t: Date.now() });
+          post({ type: MSG.TRANSCRIPT_SEGMENT, final: false, text: interim.trim(), t: Date.now(), src });
         }
       };
       r.onerror = (event) => {
         const err = event.error || 'unknown';
-        if (isPermissionError(err)) wantRunning = false;
-        post({ type: MSG.TRANSCRIBE_ERROR, error: err, source });
+        if (isPermissionError(err) || err === 'audio-capture') wantRunning = false;
+        post({ type: MSG.TRANSCRIBE_ERROR, error: err, src });
       };
       r.onend = () => {
         running = false;
@@ -96,7 +83,7 @@
                 recognition = build();
                 recognition.start();
               } catch (e2) {
-                post({ type: MSG.TRANSCRIBE_ERROR, error: 'restart-failed', source });
+                post({ type: MSG.TRANSCRIBE_ERROR, error: 'restart-failed', src });
               }
             }
           }, 250);
@@ -107,7 +94,7 @@
 
     function start() {
       if (!SR) {
-        post({ type: MSG.TRANSCRIBE_ERROR, error: 'speech-recognition-unavailable', source });
+        post({ type: MSG.TRANSCRIBE_ERROR, error: 'speech-recognition-unavailable', src });
         return;
       }
       wantRunning = true;
@@ -136,7 +123,7 @@
     return { start, stop };
   }
 
-  const api = { isPermissionError, nextMicMode, create };
+  const api = { isPermissionError, create };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

@@ -9,8 +9,8 @@ importScripts(
   '../common/protocol.js',
   '../common/config.js',
   '../common/transcript.js',
-  '../common/speech.js',
   'image-hash.js',
+  'mic-triage.js',
   'session-store.js',
   'exporter.js',
   'loom-timeline.js',
@@ -187,8 +187,10 @@ async function ensureOffscreen() {
   creatingOffscreen = chrome.offscreen
     .createDocument({
       url: 'src/offscreen/offscreen.html',
-      reasons: ['CLIPBOARD'],
-      justification: 'Copy the feedback file path to the clipboard when a recording is saved.',
+      reasons: ['CLIPBOARD', 'USER_MEDIA'],
+      justification:
+        'Copy the feedback file path to the clipboard when a recording is saved, and run mic ' +
+        'transcription when the recorded page blocks microphone use for embedded frames.',
     })
     .catch((e) => {
       // someone else created it in the meantime — that's fine
@@ -259,6 +261,11 @@ async function startRecording(requestedTabId) {
     tabId: tab.id,
     windowId: tab.windowId,
     settings,
+    // where speech recognition runs: the extension iframe in the page, or the
+    // offscreen document once a page's Permissions-Policy blocks the iframe mic
+    recMode: 'iframe',
+    recFallbackTried: false,
+    pageFallbackTried: false,
   };
   starting = false; // session.active now guards re-entry; don't leave this stuck if a later await throws
   await store.setMeta({
@@ -292,7 +299,7 @@ async function startRecording(requestedTabId) {
   // Arm the (usually already-injected) content script immediately so the overlay
   // appears instantly; inject in the background for tabs that predate the
   // extension (their CONTENT_READY re-arms them). Don't block start on injection.
-  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings, startedAt, transcript: transcriptText });
+  notifyContent(tab.id, { type: MSG.SESSION_STARTED, settings, startedAt, transcript: transcriptText, recMode: 'iframe' });
   ensureContentScript(tab.id);
 
   if (settings.triggers.start) {
@@ -368,8 +375,9 @@ async function stopRecording(opts) {
   chrome.alarms.clear('heartbeat');
   capture.end();
 
-  // Ask the recognizer iframe to flush its final segment (transcriptOpen keeps
-  // handleTranscript writing it), then tear down the overlay + iframe.
+  // Ask the recognizer (page iframe or offscreen fallback — both obey this) to
+  // flush its final segment (transcriptOpen keeps handleTranscript writing it),
+  // then tear down the overlay + iframe.
   broadcast({ type: MSG.RECOGNIZER_STOP });
   // ...and the content script, in case it fell back to the page's own mic
   notifyContent(s.tabId, { type: MSG.RECOGNIZER_STOP });
@@ -531,13 +539,24 @@ function togglePause() {
     chrome.alarms.clear('heartbeat');
     setBadge('paused');
     notifyContent(session.tabId, { type: MSG.SESSION_PAUSED });
+    // the content script tears down its iframe recognizer; the offscreen
+    // fallback (if engaged) is stopped by the same broadcast every host obeys
+    broadcast({ type: MSG.RECOGNIZER_STOP });
   } else {
     const s = session.settings || {};
     if (s.triggers && s.triggers.heartbeat) {
       chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, s.heartbeatSeconds / 60) });
     }
     setBadge('recording');
-    notifyContent(session.tabId, { type: MSG.SESSION_RESUMED });
+    notifyContent(session.tabId, { type: MSG.SESSION_RESUMED, recMode: session.recMode || 'iframe' });
+    if (session.recMode === 'offscreen') {
+      ensureOffscreen().then(() => {
+        broadcast({
+          type: MSG.OFFSCREEN_RECOGNIZE,
+          lang: (session && session.settings && session.settings.language) || 'en-US',
+        });
+      });
+    }
   }
   broadcastStatus();
   return statePayload();
@@ -613,6 +632,14 @@ async function followFocus() {
   if (!capturable(tab.url)) return; // ignore chrome:// etc. — keep the previous tab
 
   const oldTabId = session.tabId;
+  // the page-mic fallback belongs to the old site's page; the new tab starts
+  // over with the iframe (and may fall back again if its site blocks it too)
+  if (session.recMode === 'page') {
+    session.recMode = 'iframe';
+    session.recFallbackTried = false;
+    session.pageFallbackTried = false;
+    store.patchMeta({ recMode: 'iframe', recFallbackTried: false, pageFallbackTried: false }).catch(() => {});
+  }
   session.tabId = tab.id;
   session.windowId = tab.windowId;
   capture.setContext({ tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title });
@@ -626,6 +653,7 @@ async function followFocus() {
     settings: session.settings,
     startedAt: session.startedAt,
     transcript: transcriptText, // so the new window's overlay shows what we've heard
+    recMode: session.recMode || 'iframe', // offscreen recognition keeps running across tab moves
   });
 
   // capture the newly-focused view + record the page change
@@ -742,6 +770,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           startedAt: session.startedAt,
           transcript: transcriptText,
           paused: !!session.paused,
+          recMode: session.recMode || 'iframe',
         });
       }
       return false;
@@ -798,11 +827,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       return false;
 
-    // ---- transcription from the content script ----
+    // ---- transcription (recognizer iframe, or the offscreen fallback) ----
     case MSG.TRANSCRIPT_SEGMENT:
       // gate on transcriptOpen (not session.active) so the final segment that
       // flushes in during the post-stop window is still recorded
-      if (transcriptOpen && session && sender.tab && sender.tab.id === session.tabId) {
+      if (transcriptOpen && fromCurrentRecognizer(msg, sender)) {
         handleTranscript(msg);
       }
       return false;
@@ -833,9 +862,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case MSG.MIC_LISTENING:
-      // the recognizer iframe is now capturing audio -> tell the overlay to switch
+      // recognition is actually capturing audio -> tell the overlay to switch
       // from "starting microphone…" to the live recording UI
-      if (session && session.active && sender.tab && sender.tab.id === session.tabId) {
+      if (session && session.active && fromCurrentRecognizer(msg, sender)) {
         notifyContent(session.tabId, { type: MSG.MIC_LISTENING });
       }
       return false;
@@ -856,9 +885,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// Which recognizer a message came from: the extension iframe in the page, the
+// offscreen document, or the content script's page-mic last resort.
+function recHost(msg) {
+  return msg.src === 'offscreen' || msg.src === 'page' ? msg.src : 'iframe';
+}
+
+// Accept recognizer traffic only from wherever recognition currently runs — the
+// extension iframe in the recorded tab, the offscreen document, or the page
+// itself — so a switchover can't double transcripts.
+function fromCurrentRecognizer(msg, sender) {
+  if (!session) return false;
+  const mode = session.recMode || 'iframe';
+  if (mode === 'offscreen') {
+    return msg.src === 'offscreen' && !!sender && !sender.tab;
+  }
+  const inTab = !!(sender && sender.tab && sender.tab.id === session.tabId);
+  return inTab && recHost(msg) === mode;
+}
+
 function handleTranscript(msg) {
-  // transcription comes from the recognizer iframe; store finalized segments
-  // through the post-stop flush window, and forward everything to the overlay.
+  // store finalized segments through the post-stop flush window, and forward
+  // everything to the overlay.
   const t = msg.t || Date.now();
   if (msg.final && transcriptOpen) {
     store.addEvent({ t, type: 'transcript', final: true, text: msg.text });
@@ -888,23 +936,82 @@ async function editTranscript(id, text) {
   }
 }
 
+// Popup banner text per triage verdict (the overlay has its own phrasing).
+const MIC_ERROR_STATUS = {
+  permission:
+    'Microphone permission needed — click the extension icon and allow the mic (choose "Allow on every visit"), then restart recording.',
+  'page-blocked': 'This site blocks microphone use for extensions — recording continues without a transcript.',
+  service: "Chrome's speech service isn't responding — recording continues without a transcript.",
+  'no-audio': 'No working microphone found — recording continues without a transcript.',
+  blocked: 'Microphone was blocked. Allow it for the extension (toolbar popup), then restart recording.',
+  'site-mic':
+    'Microphone is blocked for this site. Click the site-settings icon left of the address bar, allow Microphone, then pause and resume.',
+};
+
 function handleTranscribeError(msg) {
   const err = (msg.error || '').toLowerCase();
-  console.warn('[scf] transcribe error:', msg.error, msg.source || '');
-  if (self.SCF_SPEECH.isPermissionError(err)) {
-    // the overlay decides: an iframe that was refused falls back to the page's own
-    // mic (sites like claude.ai forbid the mic to extension iframes); only a
-    // refusal in the page itself is shown as "blocked"
-    if (session && session.active) {
-      notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true, error: err, source: msg.source || 'frame' });
-    }
-    if (msg.source !== 'page') return;
-    broadcast({
-      type: MSG.STATUS,
-      state: statePayload(),
-      error: 'Microphone is blocked for this site. Click the site-settings icon left of the address bar, allow Microphone, then pause and resume.',
+  console.warn(
+    '[scf] transcribe error:', msg.error,
+    '· src:', msg.src || 'iframe',
+    '· pagePolicyAllowsMic:', msg.policyAllowed,
+    '· extensionMicPermission:', msg.permState
+  );
+  if (!(session && session.active)) return;
+  const verdict = self.SCF.micTriage.classify({
+    error: err,
+    src: msg.src,
+    policyAllowed: msg.policyAllowed,
+    permState: msg.permState,
+  });
+  if (verdict.kind === 'other') return; // transient; the recognizer's own restart loop handles it
+
+  // Once recognition has moved on (offscreen, or the page itself), late errors
+  // from the host we left are noise — don't let them override the new outcome.
+  if (recHost(msg) !== (session.recMode || 'iframe')) return;
+
+  // First blocked verdict from the page iframe: retry in the offscreen document,
+  // which no page Permissions-Policy can reach. The overlay stays on "starting
+  // microphone…" until the fallback reports MIC_LISTENING (or fails, below).
+  if (verdict.fallback && !session.recFallbackTried) {
+    session.recFallbackTried = true;
+    session.recMode = 'offscreen';
+    session.recFallbackReason = verdict.kind;
+    store.patchMeta({ recMode: 'offscreen', recFallbackTried: true, recFallbackReason: verdict.kind }).catch(() => {});
+    console.warn('[scf] page recognizer blocked (' + verdict.kind + ') — falling back to offscreen recognition');
+    ensureOffscreen().then(() => {
+      broadcast({
+        type: MSG.OFFSCREEN_RECOGNIZE,
+        lang: (session && session.settings && session.settings.language) || 'en-US',
+      });
     });
+    return;
   }
+
+  // Last resort: the offscreen document failed too (e.g. heard nothing for 7s).
+  // Run speech in the recorded page itself, on the site's own mic permission —
+  // Chrome asks once for that site ("claude.ai wants to use your microphone").
+  if (self.SCF.micTriage.pageFallback(verdict, msg.src) && !session.pageFallbackTried) {
+    session.pageFallbackTried = true;
+    session.recMode = 'page';
+    store.patchMeta({ recMode: 'page', pageFallbackTried: true }).catch(() => {});
+    console.warn('[scf] offscreen recognizer failed (' + verdict.kind + ') — falling back to the page mic');
+    broadcast({ type: MSG.RECOGNIZER_STOP }); // stop the offscreen recognizer
+    notifyContent(session.tabId, { type: MSG.REC_MODE, recMode: 'page' });
+    return;
+  }
+
+  // Giving up — tell the user the actual cause. When the fallback failed after a
+  // page-policy block, the page block is still the story, unless the fallback
+  // discovered the real problem is the permission grant itself. A refusal in the
+  // page itself means the SITE's mic permission is blocked.
+  let kind = verdict.kind;
+  if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio') {
+    kind = 'site-mic';
+  } else if (msg.src === 'offscreen' && kind !== 'permission' && session.recFallbackReason === 'page-blocked') {
+    kind = 'page-blocked';
+  }
+  notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true, micErrorKind: kind });
+  broadcast({ type: MSG.STATUS, state: statePayload(), error: MIC_ERROR_STATUS[kind] || MIC_ERROR_STATUS.blocked });
 }
 
 // ---- keepalive port from offscreen keeps the SW alive during long silences ----
@@ -930,6 +1037,10 @@ async function recover() {
         windowId: meta.windowId,
         settings,
         paused: !!meta.paused,
+        recMode: meta.recMode || 'iframe',
+        recFallbackTried: !!meta.recFallbackTried,
+        recFallbackReason: meta.recFallbackReason || null,
+        pageFallbackTried: !!meta.pageFallbackTried,
       };
       capture.restore(
         { windowId: meta.windowId, tabId: meta.tabId, settings, lastUrl: meta.lastUrl, lastTitle: meta.lastTitle, startedAt: meta.startedAt },
@@ -956,8 +1067,15 @@ async function recover() {
           chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(0.5, settings.heartbeatSeconds / 60) });
         }
       }
-      // the content script is still running in the tab and kept its recognition
-      // going across the SW restart; nothing else to restart here.
+      // The content script (iframe mode) kept its recognition going across the
+      // SW restart. In offscreen mode the doc usually survived too, but a full
+      // browser restart loses it — re-arm it; the offscreen recognizer ignores
+      // the message if it's already running.
+      if (!session.paused && session.recMode === 'offscreen') {
+        ensureOffscreen().then(() => {
+          broadcast({ type: MSG.OFFSCREEN_RECOGNIZE, lang: settings.language || 'en-US' });
+        });
+      }
     } else {
       // no active session — make sure the download shelf isn't left suppressed
       // from a prior recording that was abandoned without a clean stop

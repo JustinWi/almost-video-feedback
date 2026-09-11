@@ -1,0 +1,6 @@
+# Store text files with LF line endings in the repo, whatever the editor's OS.
+# (A CRLF-converted commit made every file a whole-file merge conflict.)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.zip binary

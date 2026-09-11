@@ -106,11 +106,16 @@ and it's reused on every site — no per-website prompts. When you start, the ov
 **"Starting microphone…"** spinner and only switches to the live **REC** state once the recognizer is
 actually capturing audio — so it never looks like it's recording before the mic is on.
 
-A few sites only let their **own** origin use the microphone (claude.ai sends
-`Permissions-Policy: microphone=(self …)`), so the extension's iframe is refused there. The overlay
-then switches automatically to running speech recognition in the page itself: Chrome asks **once for
-that site** ("claude.ai wants to use your microphone") — click Allow. If that is blocked too, the bar
-says so: click the site-settings icon left of the address bar, allow Microphone, then press ⏸ and ▶.
+Some sites ship a `Permissions-Policy` header that blocks microphone use for embedded frames
+(claude.ai does), which would silently kill the iframe recognizer no matter what you've granted.
+When that happens the extension automatically moves transcription into its own offscreen document
+(which no site policy can touch) and keeps going. If that hears nothing within 7 seconds, it runs
+speech recognition in the page itself as a last resort: Chrome asks **once for that site**
+("claude.ai wants to use your microphone") — click Allow. If transcription still can't run, the
+overlay says exactly why — mic permission missing (open the toolbar popup and pick **"Allow on
+every visit"**, not "Allow this time"), the site's microphone blocked (click the site-settings icon
+left of the address bar, allow Microphone, then press ⏸ and ▶), or Chrome's speech service being
+down — and screenshots keep recording either way.
 
 ## Privacy & security
 

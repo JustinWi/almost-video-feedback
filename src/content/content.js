@@ -106,14 +106,32 @@
   // speech recognition runs in an extension-origin iframe (injected here) so it
   // uses the extension's one-time microphone permission instead of prompting on
   // every site. Transcript flows iframe -> service worker -> this overlay.
-  // Some sites (claude.ai) only allow their own origin to use the mic, so the
-  // iframe is refused; then we run Web Speech right here with the page's own mic
-  // permission (Chrome asks once for that site). micMode: 'frame' | 'page' | 'blocked'.
+  // If a site refuses the iframe the mic (claude.ai does), the SW first moves
+  // recognition to the offscreen document; if that hears nothing too, it sends
+  // REC_MODE 'page' and we run Web Speech right here on the page's own mic
+  // permission (Chrome asks once for that site).
   let recIframe = null;
   let pageSpeech = null;
-  let micMode = 'frame';
   let recLang = 'en-US';
   let micErrorMsg = '';
+  // 'iframe' normally; 'offscreen' when the page blocked the iframe's mic and
+  // the SW moved recognition into the extension's offscreen document (we then
+  // must NOT inject a competing iframe recognizer here)
+  let recMode = 'iframe';
+
+  // What the overlay says when transcription can't run, keyed by the SW's triage
+  // verdict. Only 'permission' is fixable by the user right now; the others
+  // reassure that screenshots are still being captured.
+  const MIC_ERROR_TEXT = {
+    permission:
+      '⚠️ Mic permission needed — click the extension icon and choose “Allow on every visit”, then restart recording.',
+    'page-blocked': '⚠️ This site blocks microphone use for extensions — recording continues without a transcript.',
+    service: '⚠️ Chrome’s speech service isn’t responding — recording continues without a transcript.',
+    'no-audio': '⚠️ No working microphone found — recording continues without a transcript.',
+    blocked: '⚠️ Microphone blocked — allow it for the extension, then restart recording.',
+    'site-mic':
+      '⚠️ Microphone blocked for this site — click the site-settings icon left of the address bar, allow Microphone, then press ⏸ and ▶.',
+  };
 
   // keepalive port so the service worker isn't evicted during quiet stretches
   let kaPort = null;
@@ -481,7 +499,7 @@
         ? 'Paused — resume to keep recording'
         : micListening
           ? 'Listening… speak your feedback'
-          : micMode === 'page'
+          : recMode === 'page'
             ? 'Starting microphone… if Chrome asks, allow it for this site'
             : 'Starting microphone…';
       textEl.innerHTML = '<span class="placeholder">' + ph + '</span>';
@@ -756,10 +774,11 @@
   function startRecognizer() {
     if (recIframe || pageSpeech) return;
     micErrorMsg = '';
-    if (micMode === 'blocked') micMode = 'page'; // resuming = retry, the user may have allowed it
-    if (micMode === 'page') {
+    if (recMode === 'offscreen') return; // the SW runs recognition in the offscreen doc
+    if (recMode === 'page') {
+      // last resort: this page's own mic (resuming after "blocked" retries it)
       if (!speechLib) return;
-      pageSpeech = speechLib.create({ lang: recLang, source: 'page', post: send });
+      pageSpeech = speechLib.create({ lang: recLang, post: send });
       pageSpeech.start();
       return;
     }
@@ -782,25 +801,6 @@
     recIframe = null;
     if (pageSpeech) pageSpeech.stop(); // graceful: its last final segment still arrives
     pageSpeech = null;
-  }
-
-  // The recognizer was refused the mic. From the iframe -> retry with the page's
-  // own mic; from the page itself -> tell the user how to unblock this site.
-  function onMicRefused(msg) {
-    const src = msg.source === 'page' ? 'page' : 'frame';
-    const next = speechLib ? speechLib.nextMicMode(src, msg.error || 'not-allowed') : 'blocked';
-    if (next === 'page') {
-      if (micMode !== 'frame') return; // a late error from an iframe we already replaced
-      micMode = 'page';
-      stopRecognizer();
-      if (recording && !paused) startRecognizer();
-    } else if (next === 'blocked') {
-      micMode = 'blocked';
-      stopRecognizer();
-      micErrorMsg =
-        '⚠️ Microphone blocked for this site — click the site-settings icon left of the address bar, allow Microphone, then press ⏸ and ▶.';
-    }
-    applyMicState();
   }
 
   // ----------------------------------------------------------------- keepalive
@@ -859,12 +859,16 @@
     lastScrollCaptureY = window.scrollY || 0;
     lastRouteUrl = location.href;
     recLang = (cfg.language || 'en-US');
+    recMode = msg.recMode || 'iframe';
     if (cfg.showOverlay !== false) buildOverlay();
     startAnnotate();
     startTracking();
     patchHistory();
-    if (!paused) startRecognizer(); // don't turn the mic on if we re-armed while paused
-    else loadEditor(); // re-armed while paused -> the transcript is editable here too
+    // don't turn the mic on if we re-armed while paused (the transcript is
+    // editable instead), or if recognition already runs in the offscreen
+    // document (a second recognizer would double every transcript segment)
+    if (paused) loadEditor();
+    else if (recMode !== 'offscreen') startRecognizer();
     startKeepalive();
     send({ type: MSG.PAGE_INFO, url: location.href, title: document.title });
   }
@@ -873,6 +877,7 @@
     recording = false;
     paused = false;
     micListening = false;
+    recMode = 'iframe';
     stopRecognizer();
     stopKeepalive();
     stopTracking();
@@ -893,11 +898,14 @@
     loadEditor(); // ...and let the user fix misheard words meanwhile
   }
 
-  function onSessionResumed() {
+  function onSessionResumed(msg) {
     closeEditor(); // commits a segment that's mid-edit
     paused = false;
     micListening = false; // mic restarts -> "starting microphone…" until it's live again
-    startRecognizer();
+    micErrorMsg = '';
+    if (msg && msg.recMode) recMode = msg.recMode;
+    // in offscreen mode the SW restarts the offscreen recognizer itself
+    if (recMode !== 'offscreen') startRecognizer();
     applyMicState();
   }
 
@@ -979,10 +987,19 @@
         onSessionPaused();
         break;
       case MSG.SESSION_RESUMED:
-        onSessionResumed();
+        onSessionResumed(msg);
         break;
       case MSG.SAVED_NOTICE:
         showSavedToast();
+        break;
+      case MSG.REC_MODE:
+        // the SW moved recognition — last resort: into this page, on the site's
+        // own mic (Chrome asks once for this site)
+        recMode = msg.recMode || 'iframe';
+        stopRecognizer();
+        micListening = false;
+        if (recording && !paused) startRecognizer();
+        applyMicState();
         break;
       case MSG.RECOGNIZER_STOP:
         // stopping: flush the page-mic recognizer's last words (the iframe gets
@@ -997,7 +1014,8 @@
         break;
       case MSG.TRANSCRIPT_UPDATE:
         if (msg.micError) {
-          onMicRefused(msg);
+          micErrorMsg = MIC_ERROR_TEXT[msg.micErrorKind] || MIC_ERROR_TEXT.blocked;
+          applyMicState();
         } else if (msg.final) {
           finalText += (finalText ? ' ' : '') + msg.text;
           interimText = '';
