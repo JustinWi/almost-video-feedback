@@ -23,7 +23,8 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
 - **Transcription** runs in real time via Chrome's built-in **Web Speech API** (no API key, no
   setup), hosted in a hidden **extension-origin iframe** injected into the page. That gives it a
   foreground document (which Web Speech needs — it doesn't work in an offscreen document) *and* the
-  extension's one-time microphone permission (so you're not prompted per site). A higher-quality
+  extension's one-time microphone permission (so you're not prompted per site). On sites that forbid
+  the mic to embedded frames (e.g. claude.ai), it falls back to running in the page itself. A higher-quality
   remote engine (Deepgram / AssemblyAI / Whisper) can be added later.
 - **Screenshots** are captured at strategically chosen moments and **deduplicated** so the agent
   isn't drowned in near-identical frames. Capture triggers:
@@ -39,17 +40,19 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
     (a toggle, a menu) **or** the page changed a lot — and dropped when the click changed nothing.
     (Switchable to "always capture" or plain whole-screen dedup in Settings.)
 - **Overlay**: a single translucent bar shows the live transcript, a screenshot
-  counter, and Pause / Shot / minimize / Stop buttons (plus a **⌫** clear button while a drawing is present). It's
-  **draggable** (grab the REC area) and **minimizable** (collapses to a small pill), and its
+  counter, and Pause / Shot / **✎ Draw** / minimize / Stop buttons (plus a **clear-drawings** button — a scribble with a red ✕ — right next to ✎ while a drawing is present). It's
+  **draggable** (grab the **⋮⋮** handle — the whole left "● REC 📸" zone moves it) and **minimizable** (collapses to a small pill), and its
   position is remembered. It stays put during captures (no flicker); minimize or move it if you want
   it out of a screenshot. The canonical "recording" state is also shown in the toolbar badge (a red ●).
-- **On-page drawing** (telestrator): on by default — **right-click and drag** to draw on the page in
-  neon pink so the AI can see what you're pointing at. On macOS use **Control-Option-click and drag**
-  (a deliberate combo that stays clear of the right-click menu and Control+scroll zoom; a mouse
-  right-drag works too). Works **over embedded iframes** too (each frame draws over its own area). The
+- **On-page drawing** (telestrator): on by default — click the **✎ pen button** on the overlay, then
+  click and drag to draw on the page in neon pink so the AI can see what you're pointing at (the page
+  isn't clicked while the pen is on; the mouse wheel still scrolls; **Esc**, the button again, or
+  **Alt/⌥+Shift+D** turns it off; hold **Shift** while dragging for a straight horizontal/vertical line). Shortcut without the button: **right-click and drag**, or on macOS **Control-Option-click
+  and drag** (a deliberate combo that stays clear of the right-click menu and Control+scroll zoom).
+  Works **over embedded iframes** too. The
   marks are painted into the page, so they show up in the screenshots, and a screenshot is captured
   after each drawing. A plain right-click still opens the page's normal menu; **double-click** the draw
-  gesture — or the **⌫** button that appears on the overlay — clears (every frame). Turn it off in
+  gesture — or the **clear-drawings** button that appears next to ✎ — clears (every frame). Turn it off in
   Settings.
 - **Mic meter**: the popup shows a live microphone level so you can confirm audio is being picked up.
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),
@@ -101,8 +104,13 @@ Transcription runs in a hidden **extension-origin iframe**, so you grant the mic
 extension **once** (Chrome's prompt the first time you record, or via the toolbar popup's mic meter)
 and it's reused on every site — no per-website prompts. When you start, the overlay shows a
 **"Starting microphone…"** spinner and only switches to the live **REC** state once the recognizer is
-actually capturing audio — so it never looks like it's recording before the mic is on. If recording
-shows a "microphone blocked" hint, open the toolbar popup once to grant it, then start again.
+actually capturing audio — so it never looks like it's recording before the mic is on.
+
+A few sites only let their **own** origin use the microphone (claude.ai sends
+`Permissions-Policy: microphone=(self …)`), so the extension's iframe is refused there. The overlay
+then switches automatically to running speech recognition in the page itself: Chrome asks **once for
+that site** ("claude.ai wants to use your microphone") — click Allow. If that is blocked too, the bar
+says so: click the site-settings icon left of the address bar, allow Microphone, then press ⏸ and ▶.
 
 ## Privacy & security
 
@@ -140,7 +148,9 @@ or telemetry. The extension makes **no network requests of its own** (independen
    shows the live transcript and flashes "📸 Screenshot N" when one is captured.
 4. Press the hotkey or the **📸 Shot** button any time you want to force a capture.
 5. Hit **⏸ Pause** on the overlay to step away — the mic turns off and nothing is captured until you
-   press **▶** to resume (the bar shows **PAUSED**).
+   press **▶** to resume (the bar shows **PAUSED**). While paused, the transcript turns editable:
+   click any misheard words to fix them (Enter saves, Esc undoes, empty a line to delete it). The
+   corrected text is what lands in `feedback.md`.
 6. Click **Stop** (in the popup or the overlay). The popup pops open showing **"Recording saved"**,
    the bundle is written, and the agent prompt (with the file path) is copied to your clipboard
    automatically. The popup also lists your **last 5 recordings** — click one to view it or copy its
@@ -156,6 +166,11 @@ or telemetry. The extension makes **no network requests of its own** (independen
 |---|---|---|
 | Start / stop recording | `Ctrl+Shift+Y` | `⌘+Shift+Y` |
 | Force a screenshot | `Ctrl+Shift+U` | `⌘+Shift+U` |
+| Draw on the page (pen on / off) | `Alt+Shift+D` | `⌥+Shift+D` |
+| Clear all drawings | `Alt+Shift+X` | `⌥+Shift+X` |
+
+Hover any overlay button to see its shortcut instantly. While drawing, hold **Shift** for a straight
+horizontal or vertical line.
 
 ### Recordings library & sharing
 

@@ -110,6 +110,28 @@
     return id;
   }
 
+  // Merge a patch into one stored event (e.g. a corrected transcript segment).
+  // Returns the updated event, or null if the id doesn't exist.
+  async function updateEvent(id, patch) {
+    let updated = null;
+    await tx('events', 'readwrite', (t) => {
+      const os = t.objectStore('events');
+      const r = os.get(id);
+      r.onsuccess = () => {
+        if (!r.result) return;
+        updated = Object.assign({}, r.result, patch, { id });
+        os.put(updated);
+      };
+    });
+    return updated;
+  }
+
+  async function deleteEvent(id) {
+    await tx('events', 'readwrite', (t) => {
+      t.objectStore('events').delete(id);
+    });
+  }
+
   async function addScreenshot(seq, blob, mime) {
     await tx('screenshots', 'readwrite', (t) => {
       t.objectStore('screenshots').put({ seq, blob, mime });
@@ -268,6 +290,8 @@
     getMeta,
     patchMeta,
     addEvent,
+    updateEvent,
+    deleteEvent,
     addScreenshot,
     getEvents,
     getScreenshot,

@@ -48,12 +48,18 @@
     ANNOTATE_INK: 'annotate_ink', // a frame reports whether it currently has a drawing
     ANNOTATE_INK_ANY: 'annotate_ink_any', // SW -> top frame: does any frame have a drawing
     CLEAR_ANNOTATIONS: 'clear_annotations', // clear drawings in every frame
+    TOGGLE_PEN: 'toggle_pen', // SW -> top frame: the draw shortcut was pressed
+    GET_SHORTCUTS: 'get_shortcuts', // content -> SW: { commandName: 'shortcut label' } for tooltips
 
     // service worker <-> recognizer iframe (Web Speech at the extension origin)
     RECOGNIZER_STOP: 'recognizer_stop',
     TRANSCRIPT_SEGMENT: 'transcript_segment',
     TRANSCRIBE_ERROR: 'transcribe_error',
     MIC_LISTENING: 'mic_listening', // recognizer is actually capturing audio now
+
+    // content (overlay, while paused) <-> service worker: fix misheard words
+    GET_TRANSCRIPT: 'get_transcript', // -> { segments: [{ id, t, text }] }
+    EDIT_TRANSCRIPT: 'edit_transcript', // { id, text } -> { ok, transcript } (empty text deletes)
     COPY_TO_CLIPBOARD: 'copy_to_clipboard',
     KEEPALIVE: 'keepalive',
 

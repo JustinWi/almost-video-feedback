@@ -50,6 +50,7 @@
       ],
       "js": [
         "src/common/protocol.js",
+        "src/common/speech.js",
         "src/background/loom-timeline.js",
         "src/content/overlay-style.js",
         "src/content/dom-descriptor.js",
@@ -69,6 +70,7 @@
       ],
       "js": [
         "src/common/protocol.js",
+        "src/content/gesture.js",
         "src/content/annotate.js"
       ],
       "run_at": "document_idle",
@@ -90,6 +92,20 @@
         "mac": "Command+Shift+U"
       },
       "description": "Force a screenshot now"
+    },
+    "toggle-draw": {
+      "suggested_key": {
+        "default": "Alt+Shift+D",
+        "mac": "Alt+Shift+D"
+      },
+      "description": "Draw on the page (turn the pen on / off)"
+    },
+    "clear-drawings": {
+      "suggested_key": {
+        "default": "Alt+Shift+X",
+        "mac": "Alt+Shift+X"
+      },
+      "description": "Clear all drawings"
     }
   },
   "web_accessible_resources": [

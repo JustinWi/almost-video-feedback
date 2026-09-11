@@ -3,16 +3,20 @@
  * into the page so the marks show up in the screenshots. Classic content script
  * -> globalThis.SCF_ANNOTATE.
  *
- * Draw: a right-button drag (Windows/Linux/Mac mouse), OR a Control+Option+left
- * drag (the safe combo on a Mac trackpad — two-finger drag is scrolling and plain
- * Control-click is the OS secondary-click; Control+Option also works elsewhere).
- * A plain right-click / Control-click still opens the page's normal menu. Clearing:
- * double the draw gesture (double right-click, or double Control+Option-click), or
- * clear().
+ * Draw:
+ *   - Pen mode (the ✎ button on the overlay, or setPenMode(true)): a plain left
+ *     drag draws; the canvas takes the mouse so the page isn't clicked. Esc exits.
+ *   - Shortcut, no button: a right-button drag, OR a Control+Option+left drag (the
+ *     safe combo on a Mac trackpad — two-finger drag is scrolling and plain
+ *     Control-click is the OS secondary-click; Control+Option also works elsewhere).
+ *     A plain right-click / Control-click still opens the page's normal menu.
+ * Clearing: double the shortcut gesture (double right-click, or double
+ * Control+Option-click), the overlay's clear-drawings button (next to ✎), or clear().
  *
- * The canvas is pointer-events:none and never blocks the page — we read the mouse
- * from document listeners and only suppress the context menu while actually drawing,
- * for the Control+Option modifier, or on the 2nd click of a clear.
+ * Outside pen mode the canvas is pointer-events:none and never blocks the page —
+ * we read the mouse from document listeners and only suppress the context menu
+ * while actually drawing, for the Control+Option modifier, or on the 2nd click of
+ * a clear.
  */
 (function () {
   'use strict';
@@ -27,6 +31,13 @@
   const SECONDARY_LABEL = IS_MAC ? 'Control-Option-click' : 'right-click';
   const DRAG_PX = 8; // movement beyond this is a draw, not a click
   const DOUBLE_MS = 450; // window for a double tap -> clear
+  const PEN_MIN_PX = 2; // a pen-mode press that moves less than this is a tap, not a stroke
+  const WHEEL_PASS_MS = 250; // after a wheel event in pen mode, let the page scroll for this long
+  // pencil cursor (hotspot at the tip) for pen mode; crosshair where SVG cursors fail
+  const PEN_CURSOR =
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' " +
+    "viewBox='0 0 24 24' fill='%23ff2d95' stroke='white' stroke-width='1.5' stroke-linejoin='round'%3E" +
+    "%3Cpath d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E\") 3 21, crosshair";
 
   let host = null;
   let shadow = null;
@@ -47,8 +58,16 @@
   let hintEl = null;
   let hintTimer = null;
 
+  let lastRaw = null; // latest (unsnapped) pointer position of the in-progress stroke
+  let straightFrom = null; // with Shift held: the points before the straight segment (last = anchor)
+
+  let penMode = false; // ✎ toggled on: left-drag draws
+  let penDrawing = false; // a pen-mode stroke is in progress
+  let wheelTimer = null;
+
   let onInk = null; // (hasInk:boolean) => void
   let onDraw = null; // () => void, a stroke was just committed
+  let onPen = null; // (penOn:boolean) => void
 
   const nowMs = () => performance.now();
   const handlers = [];
@@ -168,14 +187,17 @@
     hintEl = null;
   }
 
-  // Flash a fading message above the most recent stroke.
-  function flashHint(text) {
+  // Flash a fading message above the most recent stroke (or at `at`, {x,y}).
+  function flashHint(text, at) {
     if (!shadow) return;
     hideHint();
     const s = strokes.length ? strokes[strokes.length - 1] : curStroke;
     let cx = window.innerWidth / 2;
     let top = window.innerHeight / 2;
-    if (s && s.length) {
+    if (at) {
+      cx = at.x;
+      top = at.y;
+    } else if (s && s.length) {
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
@@ -237,42 +259,68 @@
     }
   }
 
-  function onDown(e) {
-    if (!running || !isSecondaryDown(e)) return;
-    curStroke = [{ x: e.clientX, y: e.clientY }];
+  function beginStroke(p) {
+    curStroke = [p];
+    lastRaw = p;
+    straightFrom = null;
     rightMoved = 0;
+  }
+
+  // Add a pointer position to the stroke. While Shift is held the tail is one
+  // straight horizontal/vertical segment from where Shift went down (like
+  // Photoshop); releasing Shift keeps that segment and carries on freehand.
+  function extendStroke(p, shift) {
+    if (!curStroke) return;
+    if (lastRaw) rightMoved += Math.hypot(p.x - lastRaw.x, p.y - lastRaw.y);
+    lastRaw = p;
+    const G = root.SCF_GESTURE;
+    if (shift && G && G.snapAxis) {
+      if (!straightFrom) straightFrom = curStroke.slice();
+      curStroke = straightFrom.concat([G.snapAxis(straightFrom[straightFrom.length - 1], p)]);
+    } else {
+      straightFrom = null;
+      curStroke.push(p);
+    }
     scheduleRender();
   }
 
+  function onDown(e) {
+    if (!running || !isSecondaryDown(e)) return;
+    beginStroke({ x: e.clientX, y: e.clientY });
+    scheduleRender();
+  }
+
+  // Keep the finished stroke, update the ink state, and ask for a capture.
+  function commitStroke(withHint) {
+    strokes.push(curStroke);
+    curStroke = null;
+    emitInk();
+    if (withHint) maybeHint();
+    if (onDraw) {
+      try {
+        onDraw();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
   function onMove(e) {
-    if (!running || !curStroke) return;
+    if (!running || !curStroke || penDrawing) return;
     if (!secondaryHeld(e)) {
       // button released off-window: drop the in-progress stroke
       curStroke = null;
       scheduleRender();
       return;
     }
-    const last = curStroke[curStroke.length - 1];
-    if (last) rightMoved += Math.hypot(e.clientX - last.x, e.clientY - last.y);
-    curStroke.push({ x: e.clientX, y: e.clientY });
-    scheduleRender();
+    extendStroke({ x: e.clientX, y: e.clientY }, e.shiftKey);
   }
 
   function onUp(e) {
     if (!running) return;
     if (e.button !== 2 && !isCtrlOptLeft(e)) return;
     if (rightMoved >= DRAG_PX && curStroke && curStroke.length >= 2) {
-      strokes.push(curStroke);
-      curStroke = null;
-      emitInk();
-      maybeHint();
-      if (onDraw) {
-        try {
-          onDraw();
-        } catch (_) {
-          /* ignore */
-        }
-      }
+      commitStroke(true);
     } else {
       curStroke = null;
       // A Control+Option tap doesn't open a menu (we suppress it), so mouseup is
@@ -317,12 +365,98 @@
     }
   }
 
+  // ------------------------------------------------------------ pen mode
+
+  // Pen mode: the canvas takes the pointer, so a plain left drag draws instead of
+  // clicking the page. preventDefault on pointerdown also suppresses the page's
+  // compatibility mousedown/mouseup, so no click screenshot fires mid-drawing.
+  function onPenDown(e) {
+    if (!running || !penMode || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    penDrawing = true;
+    beginStroke({ x: e.clientX, y: e.clientY });
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function onPenMove(e) {
+    if (!penDrawing || !curStroke) return;
+    extendStroke({ x: e.clientX, y: e.clientY }, e.shiftKey);
+  }
+
+  function onPenUp(e) {
+    if (!penDrawing) return;
+    penDrawing = false;
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+    if (rightMoved >= PEN_MIN_PX && curStroke && curStroke.length >= 2) commitStroke(false);
+    else curStroke = null;
+    rightMoved = 0; // don't let a pen stroke look like a right-drag to onContextMenu
+    scheduleRender();
+  }
+
+  // The canvas would swallow the wheel; step aside briefly so the page (or an
+  // inner scroll area) scrolls under it. Only the first wheel tick is lost.
+  function onPenWheel() {
+    if (!penMode || !canvas) return;
+    canvas.style.pointerEvents = 'none';
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => {
+      if (penMode && canvas) canvas.style.pointerEvents = 'auto';
+    }, WHEEL_PASS_MS);
+  }
+
+  function onKey(e) {
+    if (e.type === 'keydown' && penMode && e.key === 'Escape') setPenMode(false);
+    // pressing/releasing Shift mid-stroke snaps/unsnaps right away, no mouse move needed
+    if (e.key === 'Shift' && curStroke && lastRaw) extendStroke(lastRaw, e.shiftKey);
+  }
+
+  function setPenMode(on) {
+    const next = !!on && running;
+    if (next === penMode) return;
+    penMode = next;
+    clearTimeout(wheelTimer);
+    if (canvas) {
+      canvas.style.pointerEvents = penMode ? 'auto' : 'none';
+      canvas.style.cursor = penMode ? PEN_CURSOR : '';
+      canvas.style.touchAction = penMode ? 'none' : '';
+    }
+    if (!penMode && penDrawing) {
+      penDrawing = false;
+      curStroke = null;
+      scheduleRender();
+    }
+    if (penMode) flashHint('Drag to draw · hold Shift for a straight line · Esc to stop', { x: window.innerWidth / 2, y: 64 });
+    if (onPen) {
+      try {
+        onPen(penMode);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
   function attach() {
     on(document, 'mousedown', onDown, true);
     on(document, 'mousemove', onMove, { passive: true });
     on(document, 'mouseup', onUp, true);
     on(document, 'contextmenu', onContextMenu, true);
     on(window, 'resize', sizeCanvas, { passive: true });
+    on(window, 'keydown', onKey, true);
+    on(window, 'keyup', onKey, true);
+    on(canvas, 'pointerdown', onPenDown);
+    on(canvas, 'pointermove', onPenMove, { passive: true });
+    on(canvas, 'pointerup', onPenUp);
+    on(canvas, 'pointercancel', onPenUp);
+    on(canvas, 'wheel', onPenWheel, { passive: true });
   }
 
   // --------------------------------------------------------------- lifecycle
@@ -354,6 +488,9 @@
     }
     offAll();
     hideHint();
+    clearTimeout(wheelTimer);
+    penMode = false;
+    penDrawing = false;
     strokes = [];
     curStroke = null;
     lastMenuAt = 0;
@@ -367,8 +504,15 @@
     stop,
     clear,
     flashHint,
+    setPenMode,
     IS_MAC,
     SECONDARY_LABEL,
+    isPenMode() {
+      return penMode;
+    },
+    onPenChange(fn) {
+      onPen = fn;
+    },
     onInkChange(fn) {
       onInk = fn;
     },

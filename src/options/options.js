@@ -106,9 +106,9 @@
     const d = document.getElementById('annotateDesc');
     if (d) {
       d.textContent =
-        'Control-Option-click and drag to draw in neon pink — a deliberate combo that stays clear ' +
-        'of scroll-zoom and the menu (two-finger scroll and a plain right-/Control-click still work ' +
-        'as usual). A mouse right-drag also draws. Double Control-Option-click (or the ⌫ button on the overlay) clears.';
+        'Click the ✎ pen button on the overlay, then drag to draw in neon pink (Esc stops). ' +
+        'Shortcut without the button: Control-Option-click and drag (a mouse right-drag also draws). ' +
+        'Double Control-Option-click (or the clear-drawings button next to ✎ on the overlay) clears.';
     }
   })();
 

@@ -71,8 +71,9 @@
     // clicking the toolbar icon starts a recording immediately (no popup) when idle
     clickStartsRecording: true,
 
-    // On-page drawing while recording: right-drag (or Control+Option+left-drag, the
-    // safe combo on a Mac) to draw on the page so you can point at things — the
+    // On-page drawing while recording: the overlay's ✎ pen toggle (then left-drag), or
+    // right-drag / Control+Option+left-drag (the safe combo on a Mac) to draw on the
+    // page so you can point at things — the
     // marks land in the screenshots. On by default; turn off here. Drawn in neon pink.
     annotate: true,
     annotateColor: '#ff2d95',

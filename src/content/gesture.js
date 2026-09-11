@@ -54,7 +54,18 @@
     return { pathLength: len, bboxDiag: diag, ratio, isCircle };
   }
 
-  const api = { dist, pathLength, boundingBoxDiagonal, analyzeGesture };
+  /**
+   * Shift-constrained drawing (like Photoshop): snap `p` onto the horizontal or
+   * vertical line through `anchor`, whichever axis the pointer moved along more.
+   * A tie (incl. no movement) snaps horizontal.
+   */
+  function snapAxis(anchor, p) {
+    const dx = Math.abs(p.x - anchor.x);
+    const dy = Math.abs(p.y - anchor.y);
+    return dx >= dy ? { x: p.x, y: anchor.y } : { x: anchor.x, y: p.y };
+  }
+
+  const api = { dist, pathLength, boundingBoxDiagonal, analyzeGesture, snapAxis };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

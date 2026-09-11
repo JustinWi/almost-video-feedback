@@ -8,6 +8,8 @@
 importScripts(
   '../common/protocol.js',
   '../common/config.js',
+  '../common/transcript.js',
+  '../common/speech.js',
   'image-hash.js',
   'session-store.js',
   'exporter.js',
@@ -369,6 +371,8 @@ async function stopRecording(opts) {
   // Ask the recognizer iframe to flush its final segment (transcriptOpen keeps
   // handleTranscript writing it), then tear down the overlay + iframe.
   broadcast({ type: MSG.RECOGNIZER_STOP });
+  // ...and the content script, in case it fell back to the page's own mic
+  notifyContent(s.tabId, { type: MSG.RECOGNIZER_STOP });
   await delay(500);
   transcriptOpen = false;
   notifyContent(s.tabId, { type: MSG.SESSION_STOPPED });
@@ -565,11 +569,24 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Clear drawings in every frame of the recorded tab and hide the clear button.
+function clearAllDrawings() {
+  inkFrames.clear();
+  notifyContent(session.tabId, { type: MSG.CLEAR_ANNOTATIONS }); // every frame clears
+  notifyContent(session.tabId, { type: MSG.ANNOTATE_INK_ANY, any: false });
+}
+
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'toggle-recording') toggleRecording();
-  else if (command === 'force-screenshot' && session && session.active) {
-    capture.request(TRIGGER.FORCED, {});
+  if (command === 'toggle-recording') {
+    toggleRecording();
+    return;
   }
+  if (!session || !session.active) return;
+  // Chrome delivers these even while focus is inside a cross-origin iframe (e.g.
+  // a claude.ai artifact), where a page key listener would never hear them.
+  if (command === 'force-screenshot') capture.request(TRIGGER.FORCED, {});
+  else if (command === 'toggle-draw') notifyContent(session.tabId, { type: MSG.TOGGLE_PEN });
+  else if (command === 'clear-drawings') clearAllDrawings();
 });
 
 // ------------------------------------------------------ follow focus
@@ -758,12 +775,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
 
     case MSG.CLEAR_ANNOTATIONS:
-      if (session && session.active && sender.tab && sender.tab.id === session.tabId) {
-        inkFrames.clear();
-        notifyContent(session.tabId, { type: MSG.CLEAR_ANNOTATIONS }); // every frame clears
-        notifyContent(session.tabId, { type: MSG.ANNOTATE_INK_ANY, any: false });
-      }
+      if (session && session.active && sender.tab && sender.tab.id === session.tabId) clearAllDrawings();
       return false;
+
+    case MSG.GET_SHORTCUTS:
+      // the overlay shows the live (possibly user-rebound) shortcuts in its tooltips
+      chrome.commands.getAll((cmds) => {
+        const out = {};
+        for (const c of cmds || []) if (c.name && c.shortcut) out[c.name] = c.shortcut;
+        sendResponse(out);
+      });
+      return true;
 
     case MSG.PAGE_INFO:
     case MSG.ROUTE_CHANGED:
@@ -784,6 +806,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         handleTranscript(msg);
       }
       return false;
+
+    // ---- fixing misheard words from the overlay (while paused) ----
+    case MSG.GET_TRANSCRIPT:
+      if (!(session && sender.tab && sender.tab.id === session.tabId)) {
+        sendResponse({ segments: [] });
+        return false;
+      }
+      (async () => {
+        let segments = [];
+        try {
+          segments = self.SCF_TRANSCRIPT.finalSegments(await store.getEvents());
+        } catch (e) {
+          /* ignore */
+        }
+        sendResponse({ segments });
+      })();
+      return true;
+
+    case MSG.EDIT_TRANSCRIPT:
+      if (!(session && session.active && sender.tab && sender.tab.id === session.tabId)) {
+        sendResponse({ ok: false, transcript: transcriptText });
+        return false;
+      }
+      (async () => sendResponse(await editTranscript(msg.id, msg.text)))();
+      return true;
 
     case MSG.MIC_LISTENING:
       // the recognizer iframe is now capturing audio -> tell the overlay to switch
@@ -822,15 +869,40 @@ function handleTranscript(msg) {
   }
 }
 
+// Replace (or, with empty text, delete) one finalized segment, then rebuild the
+// running transcript so the overlay and a re-armed tab show the corrected text.
+async function editTranscript(id, text) {
+  const T = self.SCF_TRANSCRIPT;
+  try {
+    const events = await store.getEvents();
+    const target = events.find((e) => e.id === id && e.type === 'transcript' && e.final);
+    if (!target) return { ok: false, transcript: transcriptText };
+    const clean = T.normalizeEdit(text);
+    if (clean) await store.updateEvent(id, { text: clean });
+    else await store.deleteEvent(id);
+    transcriptText = T.joinTranscript(T.applyEdit(events, id, clean));
+    return { ok: true, transcript: transcriptText };
+  } catch (e) {
+    console.warn('[scf] transcript edit failed:', e && e.message);
+    return { ok: false, transcript: transcriptText };
+  }
+}
+
 function handleTranscribeError(msg) {
   const err = (msg.error || '').toLowerCase();
-  console.warn('[scf] transcribe error:', msg.error);
-  if (err.includes('not-allowed') || err.includes('service-not-allowed')) {
-    if (session && session.active) notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true });
+  console.warn('[scf] transcribe error:', msg.error, msg.source || '');
+  if (self.SCF_SPEECH.isPermissionError(err)) {
+    // the overlay decides: an iframe that was refused falls back to the page's own
+    // mic (sites like claude.ai forbid the mic to extension iframes); only a
+    // refusal in the page itself is shown as "blocked"
+    if (session && session.active) {
+      notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true, error: err, source: msg.source || 'frame' });
+    }
+    if (msg.source !== 'page') return;
     broadcast({
       type: MSG.STATUS,
       state: statePayload(),
-      error: 'Microphone was blocked. Allow it for the extension (toolbar popup), then restart recording.',
+      error: 'Microphone is blocked for this site. Click the site-settings icon left of the address bar, allow Microphone, then pause and resume.',
     });
   }
 }
@@ -869,11 +941,7 @@ async function recover() {
       // rebuild the running transcript from stored finals so a re-armed overlay
       // after this restart still shows what was already heard
       try {
-        const evs = await store.getEvents();
-        transcriptText = (evs || [])
-          .filter((e) => e.type === 'transcript' && e.final && e.text)
-          .map((e) => e.text)
-          .join(' ');
+        transcriptText = self.SCF_TRANSCRIPT.joinTranscript(await store.getEvents());
       } catch (e) {
         /* ignore */
       }

@@ -10,6 +10,8 @@ const exporter = require('../src/background/exporter.js');
 const loomTimeline = require('../src/background/loom-timeline.js');
 const zip = require('../src/common/zip.js');
 const protocol = require('../src/common/protocol.js');
+const speech = require('../src/common/speech.js');
+const transcript = require('../src/common/transcript.js');
 
 let passed = 0;
 let failed = 0;
@@ -314,6 +316,83 @@ test('buildZipBytes round-trips entry names + data', () => {
   assert.strictEqual(storedName, name);
   const storedData = Buffer.from(bytes.slice(30 + nameLen, 30 + nameLen + data.length)).toString('utf8');
   assert.strictEqual(storedData, '{"a":1}');
+});
+
+console.log('snapAxis (Shift = straight line):');
+
+test('mostly-horizontal drag snaps to a horizontal line', () => {
+  assert.deepStrictEqual(gesture.snapAxis({ x: 100, y: 100 }, { x: 180, y: 112 }), { x: 180, y: 100 });
+});
+
+test('mostly-vertical drag snaps to a vertical line', () => {
+  assert.deepStrictEqual(gesture.snapAxis({ x: 100, y: 100 }, { x: 94, y: 20 }), { x: 100, y: 20 });
+});
+
+test('no movement or a perfect diagonal snaps horizontal', () => {
+  assert.deepStrictEqual(gesture.snapAxis({ x: 5, y: 5 }, { x: 5, y: 5 }), { x: 5, y: 5 });
+  assert.deepStrictEqual(gesture.snapAxis({ x: 0, y: 0 }, { x: 30, y: 30 }), { x: 30, y: 0 });
+});
+
+console.log('speech (mic fallback):');
+
+test('permission errors are recognized, others are not', () => {
+  assert.ok(speech.isPermissionError('not-allowed'));
+  assert.ok(speech.isPermissionError('service-not-allowed'));
+  assert.ok(!speech.isPermissionError('no-speech'));
+  assert.ok(!speech.isPermissionError('aborted'));
+  assert.ok(!speech.isPermissionError(undefined));
+});
+
+test('iframe blocked by the page (claude.ai) falls back to the page mic', () => {
+  assert.strictEqual(speech.nextMicMode('frame', 'not-allowed'), 'page');
+});
+
+test('page mic blocked too is final', () => {
+  assert.strictEqual(speech.nextMicMode('page', 'not-allowed'), 'blocked');
+});
+
+test('non-permission errors keep the current mode', () => {
+  assert.strictEqual(speech.nextMicMode('frame', 'no-speech'), 'frame');
+  assert.strictEqual(speech.nextMicMode('page', 'network'), 'page');
+});
+
+console.log('transcript (edit while paused):');
+
+const txEvents = [
+  { id: 1, t: 100, type: 'transcript', final: true, text: 'the button is to small' },
+  { id: 2, t: 200, type: 'screenshot', seq: 1 },
+  { id: 3, t: 300, type: 'transcript', final: true, text: 'make it bread' },
+  { id: 4, t: 400, type: 'transcript', final: false, text: 'interim' },
+];
+
+test('finalSegments keeps only finalized transcript text, with ids', () => {
+  assert.deepStrictEqual(transcript.finalSegments(txEvents), [
+    { id: 1, t: 100, text: 'the button is to small' },
+    { id: 3, t: 300, text: 'make it bread' },
+  ]);
+});
+
+test('joinTranscript joins finals with a space', () => {
+  assert.strictEqual(transcript.joinTranscript(txEvents), 'the button is to small make it bread');
+});
+
+test('applyEdit replaces one segment and leaves the rest untouched', () => {
+  const out = transcript.applyEdit(txEvents, 3, '  make it   red\n');
+  assert.strictEqual(out.find((e) => e.id === 3).text, 'make it red');
+  assert.strictEqual(out.find((e) => e.id === 1).text, 'the button is to small');
+  assert.strictEqual(out.length, 4);
+  assert.strictEqual(txEvents[2].text, 'make it bread', 'input not mutated');
+});
+
+test('applyEdit with empty text deletes the segment', () => {
+  const out = transcript.applyEdit(txEvents, 1, '   ');
+  assert.strictEqual(out.length, 3);
+  assert.strictEqual(transcript.joinTranscript(out), 'make it bread');
+});
+
+test('applyEdit never touches non-transcript events or unknown ids', () => {
+  assert.deepStrictEqual(transcript.applyEdit(txEvents, 2, 'x'), txEvents);
+  assert.deepStrictEqual(transcript.applyEdit(txEvents, 99, 'x'), txEvents);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
