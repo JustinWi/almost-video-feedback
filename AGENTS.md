@@ -94,7 +94,7 @@ README's install link points at `/releases/latest`).
 |---|---|
 | Orchestration | `src/background/service-worker.js` |
 | Capture + dedup | `src/background/capture.js`, `image-hash.js` |
-| Loom import | `src/content/loom-import.js` (scrape transcript + drive player), `src/background/loom-capture.js` (seek + `captureVisibleTab` + crop), `src/background/loom-timeline.js` (pure target-time math) |
+| Video import (Loom + YouTube) | `src/common/video-source.js` (pure: which URLs are importable + transcript clean-up), `src/content/loom-import.js` / `src/content/youtube-import.js` (scrape transcript + drive player; `*_PROBE` / `*_SEEK`), `src/background/loom-capture.js` (seek + `captureVisibleTab` + crop, for either site), `src/background/loom-timeline.js` (pure target-time math). YouTube imports can be marked *reference* (`meta.purpose`), which changes the `feedback.md` header + clipboard prompt; imports also write `transcript.md`. |
 | Storage (live + history) | `src/background/session-store.js` (IndexedDB) |
 | Output | `src/background/exporter.js`, `downloads.js`, `src/common/zip.js` |
 | Transcription + overlay + input | `src/content/*` + `src/recognizer/*` (Web Speech in an extension-origin iframe injected into the page; when a page's Permissions-Policy blocks the iframe's mic, the SW falls back to the offscreen doc, and if that hears nothing, to Web Speech in the content script itself on the site's own mic — `src/common/speech.js`, `REC_MODE`). `src/background/mic-triage.js` = pure failure triage + fallback chain (tested). |

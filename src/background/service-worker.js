@@ -9,6 +9,7 @@ importScripts(
   '../common/protocol.js',
   '../common/config.js',
   '../common/transcript.js',
+  '../common/video-source.js',
   'image-hash.js',
   'mic-triage.js',
   'session-store.js',
@@ -49,15 +50,11 @@ function capturable(url) {
     !/^https?:\/\/(chrome\.google\.com\/webstore|chromewebstore\.google\.com)/i.test(url);
 }
 
-// A loom.com/share/... page — the one place where clicking the toolbar icon should
-// open the popup (Start recording vs. Import this Loom video) instead of auto-recording.
-function isLoomShareUrl(url) {
-  try {
-    const u = new URL(url);
-    return /(^|\.)loom\.com$/i.test(u.hostname) && /\/share\//.test(u.pathname);
-  } catch (e) {
-    return false;
-  }
+// A loom.com/share/... or YouTube watch page — where clicking the toolbar icon should
+// open the popup (Start recording vs. Import this video) instead of auto-recording.
+// Returns { kind: 'loom'|'youtube', label } or null.
+function importableSource(url) {
+  return self.SCF.videoSource.sourceForUrl(url);
 }
 
 function setBadge(mode) {
@@ -137,9 +134,9 @@ function openPopup() {
 // Click-to-record: when the setting is on and we're idle, clear the action popup
 // so a click fires chrome.action.onClicked (which starts recording immediately).
 // While recording (or when the setting is off) the popup is restored, so a click
-// opens it as usual. Exception: on a Loom share page we always keep the popup so the
-// click offers a choice (Start recording vs. Import this Loom video) — auto-recording
-// there would force the user to record-then-discard before they could import.
+// opens it as usual. Exception: on a Loom share or YouTube watch page we always keep the
+// popup so the click offers a choice (Start recording vs. Import this video) —
+// auto-recording there would force the user to record-then-discard before they could import.
 async function applyActionMode() {
   let clickStarts = true;
   try {
@@ -149,14 +146,14 @@ async function applyActionMode() {
     /* default true */
   }
   const recording = !!(session && session.active) || importing;
-  let onLoom = false;
+  let onVideo = false;
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    onLoom = !!(tab && isLoomShareUrl(tab.url));
+    onVideo = !!(tab && importableSource(tab.url));
   } catch (e) {
-    /* ignore — treat as not-Loom */
+    /* ignore — treat as no importable video */
   }
-  const popup = clickStarts && !recording && !onLoom ? '' : 'src/popup/popup.html';
+  const popup = clickStarts && !recording && !onVideo ? '' : 'src/popup/popup.html';
   try {
     await chrome.action.setPopup({ popup });
   } catch (e) {
@@ -311,18 +308,20 @@ async function startRecording(requestedTabId) {
 }
 
 // Shared finalize: build the bundle, write it, copy the clipboard prompt, archive
-// the session, and set lastResult. Used by both stopRecording and importLoom.
+// the session, and set lastResult. Used by both stopRecording and importVideo.
 async function exportAndArchive(events, meta, endedAt) {
   const bundle = self.SCF.exporter.build(events, meta);
+  const purpose = meta.purpose === 'reference' ? 'reference' : 'feedback';
   let written = { mdPath: null, folderPath: null, dir: null };
   try {
-    written = await self.SCF.downloads.writeSession(bundle, meta.startedAt);
+    // imported videos also get transcript.md beside feedback.md
+    written = await self.SCF.downloads.writeSession(bundle, meta.startedAt, { transcript: !!meta.source });
   } catch (e) {
     console.warn('[scf] export failed:', e && e.message);
   }
   setTimeout(() => self.SCF.downloads.setDownloadUi(true), 1500);
 
-  const clip = self.SCF.downloads.clipboardText(written.mdPath, written.dir);
+  const clip = self.SCF.downloads.clipboardText(written.mdPath, written.dir, purpose);
   await ensureOffscreen();
   await sendToOffscreen({ type: MSG.COPY_TO_CLIPBOARD, text: clip });
 
@@ -345,6 +344,7 @@ async function exportAndArchive(events, meta, endedAt) {
         startedAtText: meta.startedAtText, durationMs: endedAt - meta.startedAt,
         pages, screenshotCount: bundle.screenshots.length, transcriptCount,
         mdPath: written.mdPath, folderPath: written.folderPath, dir: written.dir, events,
+        source: meta.source || null, purpose,
       },
       shots
     );
@@ -355,6 +355,8 @@ async function exportAndArchive(events, meta, endedAt) {
   lastResult = {
     id: String(meta.startedAt), mdPath: written.mdPath, folderPath: written.folderPath, dir: written.dir,
     clip, screenshots: bundle.screenshots.length, transcriptSegments: transcriptCount, at: endedAt,
+    source: meta.source || null, purpose,
+    adBreaks: meta.source ? meta.adBreaks || [] : undefined,
   };
   await chrome.storage.local.set({ lastResult });
   return lastResult;
@@ -388,7 +390,7 @@ async function stopRecording(opts) {
   const endedAt = Date.now();
   await store.patchMeta({ active: false, endedAt });
 
-  // build + write the bundle (shared with the Loom import path)
+  // build + write the bundle (shared with the video import path)
   const events = await store.getEvents();
   const meta = await store.getMeta();
   await exportAndArchive(events, meta, endedAt);
@@ -465,14 +467,27 @@ async function deleteDownloadedFiles(dir) {
 
 let importing = false;
 
-async function importLoom(requestedTabId) {
+// Human-readable reasons an import stopped, shown in the popup's error banner.
+function importErrorText(code, label) {
+  if (code === 'no-transcript') {
+    return label === 'YouTube'
+      ? 'This YouTube video has no transcript (its owner turned captions off), so there is nothing to import.'
+      : 'This ' + label + ' video has no transcript to import.';
+  }
+  if (code === 'ad-stuck') return 'An ad never finished, so the import stopped. Skip or finish the ad on the YouTube tab, then import again.';
+  if (code === 'no-frames') return 'Couldn\'t grab any frames. Keep the ' + label + ' tab in front, in a window that isn\'t minimized, while it imports.';
+  return 'Couldn\'t import this ' + label + ' video (' + code + '). Keep the ' + label + ' tab visible and try again.';
+}
+
+// opts.reference: true marks the video as reference material (not feedback to act on)
+async function importVideo(requestedTabId, opts) {
   if (importing || (session && session.active)) return { error: 'busy' };
   let tab = requestedTabId != null
     ? await chrome.tabs.get(requestedTabId).catch(() => null)
     : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
-  if (!tab || !isLoomShareUrl(tab.url)) {
-    return { error: 'not-a-loom-page' };
-  }
+  const src = tab && importableSource(tab.url);
+  if (!src) return { error: 'not-a-video-page' };
+  const purpose = opts && opts.reference ? 'reference' : 'feedback';
 
   importing = true;
   setBadge('saving');
@@ -482,13 +497,16 @@ async function importLoom(requestedTabId) {
   const startedAtText = new Date(startedAt).toLocaleString();
   const dir = self.SCF.downloads.sessionDir(startedAt);
   self.SCF.downloads.setDownloadUi(false);
-  await store.setMeta({ active: false, startedAt, startedAtText, tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title });
+  await store.setMeta({
+    active: false, startedAt, startedAtText, tabId: tab.id, windowId: tab.windowId, lastUrl: tab.url, lastTitle: tab.title,
+    purpose, source: { kind: src.kind, url: tab.url, title: tab.title || null },
+  });
 
-  await ensureContentScript(tab.id); // make sure loom-import.js is present
+  await ensureContentScript(tab.id); // make sure the page bridge (loom-/youtube-import.js) is present
   let res;
   try {
     res = await self.SCF.loomCapture.runImport({
-      tabId: tab.id, windowId: tab.windowId, startedAt, settings, dir, store,
+      tabId: tab.id, windowId: tab.windowId, startedAt, settings, dir, store, kind: src.kind,
       onProgress: (p) => broadcast({ type: MSG.IMPORT_PROGRESS, progress: p }),
     });
   } catch (e) {
@@ -500,15 +518,16 @@ async function importLoom(requestedTabId) {
     setBadge('idle');
     applyActionMode();
     self.SCF.downloads.setDownloadUi(true);
-    const human = res.error === 'no-transcript'
-      ? 'This Loom video has no transcript to import.'
-      : 'Couldn\'t import this Loom video (' + res.error + '). Keep the Loom tab visible and try again.';
-    broadcast({ type: MSG.STATUS, state: statePayload(), error: human });
+    broadcast({ type: MSG.STATUS, state: statePayload(), error: importErrorText(res.error, src.label) });
     return { error: res.error };
   }
 
   const endedAt = startedAt + (res.lastMs || 0);
-  await store.patchMeta({ active: false, endedAt });
+  // the page's own title (e.g. YouTube's heading) beats the tab title
+  await store.patchMeta({
+    active: false, endedAt, adBreaks: res.adBreaks || [],
+    source: { kind: src.kind, url: res.url || tab.url, title: res.title || tab.title || null },
+  });
   const events = await store.getEvents();
   const meta = await store.getMeta();
   await exportAndArchive(events, meta, Math.max(endedAt, meta.startedAt + 1000));
@@ -516,7 +535,7 @@ async function importLoom(requestedTabId) {
 
   importing = false;
   setBadge('idle');
-  applyActionMode(); // still on the Loom tab -> keep the popup (not auto-record)
+  applyActionMode(); // still on the video tab -> keep the popup (not auto-record)
   broadcastStatus();
   broadcast({ type: 'export_done', result: lastResult });
   return lastResult;
@@ -663,7 +682,7 @@ async function followFocus() {
 
 chrome.tabs.onActivated.addListener(() => {
   scheduleFollowFocus();
-  applyActionMode(); // a Loom share tab forces the popup; others fall back to click-to-record
+  applyActionMode(); // a Loom / YouTube video tab forces the popup; others fall back to click-to-record
 });
 chrome.windows.onFocusChanged.addListener((winId) => {
   if (winId !== chrome.windows.WINDOW_ID_NONE) {
@@ -671,7 +690,7 @@ chrome.windows.onFocusChanged.addListener((winId) => {
     applyActionMode();
   }
 });
-// the focused tab navigating into/out of a loom.com/share URL also changes the action mode
+// the focused tab navigating into/out of a Loom / YouTube video URL also changes the action mode
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyActionMode();
 });
@@ -714,11 +733,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true;
 
-    case MSG.IMPORT_LOOM:
+    case MSG.IMPORT_VIDEO:
       (async () => {
         if (recoverPromise) await recoverPromise;
         const reqTab = sender && sender.tab ? undefined : msg.tabId;
-        sendResponse(await importLoom(reqTab));
+        sendResponse(await importVideo(reqTab, { reference: !!msg.reference }));
       })();
       return true;
 

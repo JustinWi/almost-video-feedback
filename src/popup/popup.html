@@ -32,19 +32,26 @@
 
       <button id="primary" class="primary">Start recording</button>
       <button id="force" class="secondary" hidden>📸 Force screenshot</button>
-      <button id="import-loom" class="secondary" hidden>🎬 Import this Loom video</button>
+      <div id="import-box" class="import-box" hidden>
+        <button id="import-video" class="secondary">🎬 Import this video</button>
+        <label id="import-ref-row" class="import-ref" hidden>
+          <input type="checkbox" id="import-ref" />
+          <span>Reference video, not feedback<br /><span class="muted">Your AI gets screenshots + the transcript as background, not a list of fixes.</span></span>
+        </label>
+      </div>
       <div id="import-progress" class="import-progress" hidden>
         <div class="ip-track"><div id="ip-fill" class="ip-fill"></div></div>
         <div id="ip-label" class="ip-label"></div>
       </div>
 
       <div id="result" class="result" hidden>
-        <div class="result-title">✅ Recording saved</div>
+        <div id="result-title" class="result-title">✅ Recording saved</div>
         <div id="result-meta" class="muted"></div>
         <div class="copied">📋 Copied to your clipboard — paste into your AI</div>
         <div class="result-actions">
           <button id="copy" class="primary small">Copy again</button>
           <button id="view" class="secondary small">🎬 View &amp; share</button>
+          <button id="copy-transcript" class="secondary small" hidden>📄 Copy transcript</button>
           <button id="discard" class="secondary small danger">🗑 Delete</button>
         </div>
       </div>
@@ -63,6 +70,8 @@
       </footer>
     </div>
     <script src="../common/protocol.js"></script>
+    <script src="../common/video-source.js"></script>
+    <script src="../background/exporter.js"></script>
     <script src="../background/session-store.js"></script>
     <script src="popup.js"></script>
   </body>

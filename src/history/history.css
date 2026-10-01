@@ -71,6 +71,9 @@ figcaption { padding: 9px 10px; font-size: 12px; }
 
 .tx-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 18px 0 10px; }
 .tx-hint { font-size: 11.5px; color: #64748b; }
+.tx-action { padding: 4px 10px; font-size: 12px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 8px; vertical-align: 1px; }
+.tag.ref { background: rgba(34,197,94,.15); color: #86efac; border: 1px solid rgba(34,197,94,.4); }
 .tx-editor { display: flex; flex-direction: column; gap: 7px; }
 .tx-row { display: flex; gap: 10px; align-items: flex-start; }
 .tx-time { flex: 0 0 auto; width: 42px; padding-top: 9px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: #818cf8; font-variant-numeric: tabular-nums; }

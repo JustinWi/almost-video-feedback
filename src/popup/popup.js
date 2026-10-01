@@ -3,11 +3,12 @@
   const { MSG } = self.SCF;
   const $ = (id) => document.getElementById(id);
 
-  function isLoomShareUrl(url) {
-    try { const u = new URL(url); return /(^|\.)loom\.com$/i.test(u.hostname) && /\/share\//.test(u.pathname); }
-    catch (e) { return false; }
-  }
-  let loomTab = null; // the active tab if it's an importable Loom share page
+  const videoSource = self.SCF.videoSource;
+  const exporter = self.SCF.exporter;
+  const REF_KEY = 'importAsReference'; // remembers the reference tick between imports
+  let videoTab = null; // the active tab if it holds an importable video (Loom share / YouTube watch)
+  let videoSrc = null; // { kind, label } for videoTab
+  let lastProgress = { done: 0, total: 0 }; // last capture tick, so an ad pause keeps the bar in place
   // Drive the import progress bar. `total === 0` shows an empty bar (e.g. while the
   // transcript is still being read); pass a labelOverride for non-counting phases.
   function setImportProgress(done, total, labelOverride) {
@@ -21,13 +22,24 @@
         : 'Capturing frame ' + Math.min(done + 1, total) + ' / ' + total + '  ·  ' + pct + '%';
     }
   }
-  async function detectLoom() {
+  async function detectVideo() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      loomTab = tab && isLoomShareUrl(tab.url) ? tab : null;
-    } catch (e) { loomTab = null; }
-    const btn = $('import-loom');
-    if (btn) btn.hidden = !(loomTab && !state.recording && !state.saving);
+      videoSrc = tab ? videoSource.sourceForUrl(tab.url) : null;
+      videoTab = videoSrc ? tab : null;
+    } catch (e) { videoTab = null; videoSrc = null; }
+    $('import-box').hidden = !(videoTab && !state.recording && !state.saving);
+    if (!videoSrc) return;
+    $('import-video').textContent = (videoSrc.kind === 'youtube' ? '▶️' : '🎬') + ' Import this ' + videoSrc.label + ' video';
+    // the reference choice is offered on YouTube, where most videos aren't feedback
+    const refRow = $('import-ref-row');
+    refRow.hidden = videoSrc.kind !== 'youtube';
+    if (!refRow.hidden) {
+      try {
+        const got = await chrome.storage.local.get(REF_KEY);
+        $('import-ref').checked = !!got[REF_KEY];
+      } catch (e) { /* default unticked */ }
+    }
   }
 
   let state = { recording: false, screenshots: 0, startedAt: null, lastResult: null };
@@ -166,14 +178,29 @@
     }
   }
 
+  // "no ads", "1 ad skipped", "2 ads (1 skipped, 1 waited out)"
+  function adSummary(ads) {
+    if (!ads.length) return 'no ads';
+    const skipped = ads.filter((a) => a.how === 'skipped').length;
+    const n = ads.length + ' ad' + (ads.length === 1 ? '' : 's');
+    if (skipped === ads.length) return n + ' skipped';
+    if (!skipped) return n + ' waited out';
+    return n + ' (' + skipped + ' skipped, ' + (ads.length - skipped) + ' waited out)';
+  }
+
   function renderResult() {
     const lr = state.lastResult;
     if (lr && lr.mdPath) {
       $('result').hidden = false;
+      $('result-title').textContent = lr.purpose === 'reference'
+        ? '✅ Reference video saved'
+        : lr.source ? '✅ Video imported' : '✅ Recording saved';
+      $('copy-transcript').hidden = !(lr.transcriptSegments > 0);
       const ss = lr.screenshots || 0;
       const sp = lr.transcriptSegments || 0;
       $('result-meta').textContent =
-        ss + ' screenshot' + (ss === 1 ? '' : 's') + ' · ' + sp + ' spoken segment' + (sp === 1 ? '' : 's');
+        ss + ' screenshot' + (ss === 1 ? '' : 's') + ' · ' + sp + ' spoken segment' + (sp === 1 ? '' : 's') +
+        (lr.adBreaks ? ' · ' + adSummary(lr.adBreaks) : '');
     } else {
       $('result').hidden = true;
     }
@@ -341,7 +368,7 @@
     }
     render();
     loadRecent();
-    detectLoom();
+    detectVideo();
   }
 
   // primary button
@@ -363,20 +390,44 @@
 
   $('force').addEventListener('click', () => send({ type: MSG.FORCE_SHOT }));
 
-  $('import-loom').addEventListener('click', async () => {
-    if (!loomTab) return;
+  $('import-ref').addEventListener('change', (e) => {
+    try { chrome.storage.local.set({ [REF_KEY]: e.target.checked }); } catch (err) { /* ignore */ }
+  });
+
+  $('import-video').addEventListener('click', async () => {
+    if (!videoTab) return;
     lastError = '';
-    const btn = $('import-loom');
+    const btn = $('import-video');
     btn.disabled = true;
+    $('import-ref').disabled = true;
     $('import-progress').hidden = false;
     setImportProgress(0, 0, 'Reading transcript…');
-    const resp = await send({ type: MSG.IMPORT_LOOM, tabId: loomTab.id });
+    const reference = videoSrc && videoSrc.kind === 'youtube' && $('import-ref').checked;
+    const resp = await send({ type: MSG.IMPORT_VIDEO, tabId: videoTab.id, reference });
     // success arrives via the export_done broadcast; on failure, un-stick the UI here
     if (!resp || resp.error || !resp.mdPath) {
       $('import-progress').hidden = true;
       btn.disabled = false;
-      detectLoom();
+      $('import-ref').disabled = false;
+      detectVideo();
     }
+  });
+
+  // Copy the last recording's full transcript ("[mm:ss] line" per segment).
+  $('copy-transcript').addEventListener('click', async () => {
+    const lr = state.lastResult;
+    const btn = $('copy-transcript');
+    const orig = btn.textContent;
+    try {
+      const rec = lr && store ? await store.getHistory(lr.id) : null;
+      if (!rec) throw new Error('not found');
+      const meta = { startedAt: rec.startedAt, startedAtText: rec.startedAtText, source: rec.source };
+      await navigator.clipboard.writeText(exporter.transcriptMarkdown(rec.events || [], meta));
+      btn.textContent = '✓ Copied';
+    } catch (e) {
+      btn.textContent = 'Copy failed';
+    }
+    setTimeout(() => (btn.textContent = orig), 1400);
   });
   $('copy').addEventListener('click', async () => {
     await send({ type: MSG.COPY_LAST });
@@ -413,7 +464,12 @@
       const p = msg.progress || {};
       $('import-progress').hidden = false;
       if (p.phase === 'done') setImportProgress(p.total || 0, p.total || 0, 'Building bundle…');
-      else setImportProgress(p.done || 0, p.total || 0);
+      // from the YouTube page: keep the bar where it was, say why it's paused
+      else if (p.phase === 'ad') setImportProgress(lastProgress.done, lastProgress.total, 'Ad playing: paused, skipping it as soon as YouTube allows…');
+      else {
+        lastProgress = { done: p.done || 0, total: p.total || 0 };
+        setImportProgress(lastProgress.done, lastProgress.total);
+      }
     } else if (msg.type === 'export_done') {
       state.saving = false;
       state.recording = false;
@@ -421,8 +477,9 @@
       render();
       loadRecent(); // a new recording was just archived
       $('import-progress').hidden = true;
-      $('import-loom').disabled = false;
-      detectLoom();
+      $('import-video').disabled = false;
+      $('import-ref').disabled = false;
+      detectVideo();
     }
   });
 

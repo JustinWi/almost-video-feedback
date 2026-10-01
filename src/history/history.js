@@ -31,12 +31,7 @@
       : rec.dir
         ? 'in your Downloads folder at ' + rec.dir + '/feedback.md'
         : '(feedback.md in the shared zip / your Downloads/ai-feedback folder)';
-    return [
-      'I recorded visual + spoken feedback on my web app. Please read the feedback file and',
-      'address each item. Screenshots are referenced relative to the file, in the same folder.',
-      '',
-      'Feedback file: ' + path,
-    ].join('\n');
+    return exporter.promptText(path, rec.purpose);
   }
   function elText(el) {
     if (!el) return '';
@@ -65,8 +60,14 @@
   }
 
   // ---- per-session structured data (reuse the exporter's correlation) ----
+  function metaFor(rec) {
+    return {
+      startedAt: rec.startedAt, endedAt: rec.endedAt, startedAtText: rec.startedAtText,
+      source: rec.source || null, purpose: rec.purpose,
+    };
+  }
   function structured(rec) {
-    const meta = { startedAt: rec.startedAt, endedAt: rec.endedAt, startedAtText: rec.startedAtText };
+    const meta = metaFor(rec);
     const bundle = exporter.build(rec.events || [], meta);
     return { bundle, json: JSON.parse(bundle.json) };
   }
@@ -192,6 +193,36 @@
     tHead.innerHTML =
       '<span class="section-title" style="margin:0">Transcript</span>' +
       '<span class="tx-hint">edit any line to fix what was misheard, then Save</span>';
+    if (transcripts.length) {
+      // the whole transcript as text, for pasting or keeping as a file
+      const txCopy = document.createElement('button');
+      txCopy.className = 'btn tx-action';
+      txCopy.textContent = '📋 Copy transcript';
+      const txSave = document.createElement('button');
+      txSave.className = 'btn tx-action';
+      txSave.textContent = '⬇ Download .md';
+      txCopy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(exporter.transcriptMarkdown(rec.events || [], metaFor(rec)));
+          toast('Transcript copied');
+        } catch (e) {
+          toast('Copy failed');
+        }
+      });
+      txSave.addEventListener('click', () => {
+        const md = exporter.transcriptMarkdown(rec.events || [], metaFor(rec));
+        const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'transcript-' + stamp(rec.startedAt) + '.md';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        toast('Saved ' + a.download + ' to Downloads');
+      });
+      tHead.append(txCopy, txSave);
+    }
     bodyEl.appendChild(tHead);
 
     if (!transcripts.length) {
@@ -309,6 +340,7 @@
         { name: 'feedback.md', text: bundle.markdown },
         { name: 'session.json', text: bundle.json },
       ];
+      if (rec.source) entries.push({ name: exporter.TRANSCRIPT_FILE, text: bundle.transcriptMarkdown });
       for (const s of bundle.screenshots) {
         const shot = bySeq[s.seq];
         if (shot && shot.blob) entries.push({ name: s.file, blob: shot.blob });
@@ -382,7 +414,11 @@
     head.className = 'card-head';
     head.innerHTML =
       '<span class="expand">▶</span>' +
-      '<div class="card-title"><div class="when">' + esc(rec.startedAtText || new Date(rec.startedAt).toLocaleString()) + '</div>' +
+      '<div class="card-title"><div class="when">' +
+      (rec.purpose === 'reference' ? '<span class="tag ref">Reference</span> ' : '') +
+      (rec.source && rec.source.title ? esc(rec.source.title) + ' <span class="muted">· ' : '') +
+      esc(rec.startedAtText || new Date(rec.startedAt).toLocaleString()) +
+      (rec.source && rec.source.title ? '</span>' : '') + '</div>' +
       '<div class="sub muted">' + esc(summarize(rec)) + '</div></div>';
 
     const actions = document.createElement('div');

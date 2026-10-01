@@ -13,6 +13,7 @@ const protocol = require('../src/common/protocol.js');
 const speech = require('../src/common/speech.js');
 const transcript = require('../src/common/transcript.js');
 const micTriage = require('../src/background/mic-triage.js');
+const videoSource = require('../src/common/video-source.js');
 
 let passed = 0;
 let failed = 0;
@@ -241,6 +242,117 @@ test('empty session still builds', () => {
   const r = exporter.build([], {});
   assert.ok(typeof r.markdown === 'string' && r.markdown.length > 0);
   assert.strictEqual(r.screenshots.length, 0);
+});
+
+// ---- imported videos: reference vs feedback, transcript file ----
+const ytEvents = [
+  { id: 1, t: 1000, type: 'screenshot', seq: 1, trigger: 'frame', url: 'https://www.youtube.com/watch?v=abc', title: 'Talk' },
+  { id: 2, t: 1000 + 6000, type: 'transcript', final: true, text: 'Thank you.' },
+  { id: 3, t: 1000 + 125000, type: 'transcript', final: true, text: 'Stay hungry.' },
+];
+const ytSource = { kind: 'youtube', url: 'https://www.youtube.com/watch?v=abc', title: 'Talk' };
+
+test('reference import: header says reference material, not feedback to act on', () => {
+  const r = exporter.build(ytEvents, { startedAt: 1000, endedAt: 200000, startedAtText: 'x', source: ytSource, purpose: 'reference' });
+  assert.ok(r.markdown.startsWith('# Reference video'), 'reference title');
+  assert.ok(/not feedback/i.test(r.markdown), 'says it is not feedback');
+  assert.ok(!r.markdown.includes('implement the requested fixes'), 'no fix-it instruction');
+  assert.ok(r.markdown.includes('https://www.youtube.com/watch?v=abc'), 'source url');
+  assert.ok(r.markdown.includes('transcript.md'), 'points at the transcript file');
+  assert.ok(/said in the video:/.test(r.markdown), 'floating lines read as said in the video');
+  const j = JSON.parse(r.json);
+  assert.strictEqual(j.purpose, 'reference');
+  assert.deepStrictEqual(j.source, ytSource);
+});
+
+test('feedback import keeps the fix-it header but names the source video', () => {
+  const r = exporter.build(ytEvents, { startedAt: 1000, endedAt: 200000, startedAtText: 'x', source: ytSource });
+  assert.ok(r.markdown.startsWith('# UI / UX feedback'), 'feedback title');
+  assert.ok(r.markdown.includes('**Source video:** Talk'), 'source line');
+  assert.strictEqual(JSON.parse(r.json).purpose, 'feedback');
+});
+
+test('ad breaks met during an import are recorded in session.json', () => {
+  const adBreaks = [{ atMs: 204000, how: 'skipped', waitedMs: 5400, skipClicks: 1 }];
+  const j = JSON.parse(exporter.build(ytEvents, { startedAt: 1000, source: ytSource, adBreaks }).json);
+  assert.deepStrictEqual(j.adBreaks, adBreaks);
+  assert.deepStrictEqual(JSON.parse(exporter.build(ytEvents, { startedAt: 1000, source: ytSource }).json).adBreaks, []);
+  assert.strictEqual(JSON.parse(exporter.build(sampleEvents, sampleMeta).json).adBreaks, undefined, 'live recordings: no field');
+});
+
+test('live recordings are unchanged: no source line, no transcript-file pointer', () => {
+  const r = exporter.build(sampleEvents, sampleMeta);
+  assert.ok(!r.markdown.includes('Source video'));
+  assert.ok(!r.markdown.includes('transcript.md'));
+});
+
+test('transcriptMarkdown lists every line with its video timestamp', () => {
+  const md = exporter.transcriptMarkdown(ytEvents, { startedAt: 1000, source: ytSource });
+  assert.ok(md.startsWith('# Transcript: Talk'), 'title');
+  assert.ok(md.includes('Source: https://www.youtube.com/watch?v=abc'), 'source');
+  assert.ok(md.includes('[00:06] Thank you.'), 'first line');
+  assert.ok(md.includes('[02:05] Stay hungry.'), 'second line');
+  assert.ok(md.indexOf('Thank you.') < md.indexOf('Stay hungry.'), 'chronological');
+  assert.strictEqual(exporter.build(ytEvents, { startedAt: 1000, source: ytSource }).transcriptMarkdown, md);
+});
+
+test('transcriptMarkdown for a live recording uses the session date as its title', () => {
+  const md = exporter.transcriptMarkdown(sampleEvents, sampleMeta);
+  assert.ok(md.startsWith('# Transcript: recording of 2026-06-20 14:30'));
+  assert.ok(md.includes('[00:01] the save button is broken'));
+});
+
+test('promptText: feedback asks for fixes, reference asks to read and wait', () => {
+  const fb = exporter.promptText('/d/feedback.md');
+  assert.ok(/address each item/.test(fb) && fb.includes('/d/feedback.md'));
+  const ref = exporter.promptText('/d/feedback.md', 'reference');
+  assert.ok(/reference/i.test(ref) && /not a list of changes/i.test(ref), 'reference wording');
+  assert.ok(ref.includes('/d/feedback.md') && ref.includes('transcript.md'));
+  assert.ok(!/address each item/.test(ref));
+});
+
+// ---- video-source (which pages can be imported) ----
+test('video-source: recognises YouTube watch and live pages', () => {
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/watch?v=UF8uR6Z6KLc').kind, 'youtube');
+  assert.strictEqual(videoSource.sourceForUrl('https://youtube.com/watch?v=abc&t=30s').kind, 'youtube');
+  assert.strictEqual(videoSource.sourceForUrl('https://m.youtube.com/watch?v=abc').kind, 'youtube');
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/live/abc123').kind, 'youtube');
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/watch?v=abc').label, 'YouTube');
+});
+
+test('video-source: YouTube pages without a single video are not importable', () => {
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/watch'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/@stanford'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://www.youtube.com/results?search_query=jobs'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://notyoutube.com/watch?v=abc'), null);
+});
+
+test('video-source: Loom share pages still detected, other pages are not', () => {
+  assert.strictEqual(videoSource.sourceForUrl('https://www.loom.com/share/abc123').kind, 'loom');
+  assert.strictEqual(videoSource.sourceForUrl('https://www.loom.com/looms/videos'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://example.com/'), null);
+  assert.strictEqual(videoSource.sourceForUrl('chrome://extensions'), null);
+  assert.strictEqual(videoSource.sourceForUrl(''), null);
+  assert.strictEqual(videoSource.sourceForUrl(null), null);
+});
+
+test('video-source: cleanSegments sorts, de-dups, tidies, and drops punctuation-only lines', () => {
+  const out = videoSource.cleanSegments([
+    { ms: 15000, text: '  - Thank   you. ' },
+    { ms: 6000, text: '- -' },
+    { ms: 24000, text: 'Stay\nhungry' },
+    { ms: 15000, text: 'duplicate time' },
+    { ms: 894000, text: '. . .' },
+    { ms: -5, text: 'bad time' },
+    { ms: 30000, text: '[Music]' },
+  ]);
+  assert.deepStrictEqual(out, [
+    { ms: 15000, text: '- Thank you.' },
+    { ms: 24000, text: 'Stay hungry' },
+    { ms: 30000, text: '[Music]' },
+  ]);
+  assert.deepStrictEqual(videoSource.cleanSegments(null), []);
 });
 
 console.log('loom-timeline:');

@@ -1,7 +1,8 @@
 /*
- * Loom import capture (service worker). Classic script -> globalThis.SCF.loomCapture.
+ * Video import capture (service worker). Classic script -> globalThis.SCF.loomCapture.
+ * Named for Loom, where it started; it drives YouTube watch pages the same way.
  *
- * Drives the Loom page (via LOOM_SEEK messages to the content script) to each
+ * Drives the video page (via LOOM_SEEK / YOUTUBE_SEEK messages to the content script) to each
  * target time, captures the visible tab, crops to the video rect, dedups, and
  * stores screenshot + transcript events on the same timeline the live recorder
  * uses. captureVisibleTab sees cross-origin video pixels (rendered output), so
@@ -17,6 +18,16 @@
   const downloads = root.SCF.downloads;
 
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Per-site messages + how long one seek may take. A YouTube seek may first sit out
+  // an ad break (up to 3 minutes in the page) and then download the part of the
+  // video it jumps to, so it gets a much longer leash. adCheck: after each grab, ask
+  // the page whether an ad popped up meanwhile (that frame is then retaken).
+  const SITES = {
+    loom: { probe: MSG.LOOM_PROBE, seek: MSG.LOOM_SEEK, seekTimeoutMs: 4000, fallbackTitle: 'Loom video', adCheck: false },
+    youtube: { probe: MSG.YOUTUBE_PROBE, seek: MSG.YOUTUBE_SEEK, seekTimeoutMs: 210000, fallbackTitle: 'YouTube video', adCheck: true },
+  };
+  const AD_RETAKES = 3; // per target, frames thrown away because an ad started mid-grab
 
   function sendToTab(tabId, msg, timeoutMs) {
     return new Promise((resolve) => {
@@ -64,19 +75,20 @@
 
   /**
    * @param {{tabId:number, windowId:number, startedAt:number, settings:object,
-   *          dir:string, store:object, onProgress?:function}} a
-   * @returns {Promise<{frames:number, segments:number, error?:string}>}
+   *          dir:string, store:object, kind?:'loom'|'youtube', onProgress?:function}} a
+   * @returns {Promise<{frames:number, segments:number, title?:string, url?:string, lastMs?:number, error?:string}>}
    */
   async function runImport(a) {
     const { tabId, windowId, startedAt, settings, dir, store } = a;
     const onProgress = a.onProgress || function () {};
+    const site = SITES[a.kind] || SITES.loom;
 
-    const probe = await sendToTab(tabId, { type: MSG.LOOM_PROBE }, 8000);
+    const probe = await sendToTab(tabId, { type: site.probe }, site.seekTimeoutMs);
     if (!probe || !probe.ok) return { frames: 0, segments: 0, error: (probe && probe.error) || 'probe-failed' };
     if (!probe.hasTranscript) return { frames: 0, segments: 0, error: 'no-transcript' };
 
     const segments = probe.segments;
-    const title = probe.title || 'Loom video';
+    const title = probe.title || site.fallbackTitle;
     const url = (await chrome.tabs.get(tabId).catch(() => null) || {}).url || null;
 
     const floorMs = (settings.loomFrameFloorSeconds || 15) * 1000;
@@ -90,14 +102,26 @@
 
     let seq = 0;
     let lastHash = null;
+    let retakes = 0;
+    let adBreaks = []; // reported by the page when it's put back (YouTube only)
     try {
       for (let i = 0; i < targets.length; i++) {
         const ms = targets[i];
         onProgress({ done: i, total: targets.length, phase: 'capturing' });
-        const seek = await sendToTab(tabId, { type: MSG.LOOM_SEEK, ms }, 4000);
+        const seek = await sendToTab(tabId, { type: site.seek, ms }, site.seekTimeoutMs);
+        if (seek && seek.error === 'ad-stuck') return { frames: seq, segments: segments.length, error: 'ad-stuck', adBreaks };
         await delay(settle);
         let dataUrl;
         try { dataUrl = await chrome.tabs.captureVisibleTab(windowId, opts); } catch (e) { dataUrl = null; }
+        if (site.adCheck && dataUrl) {
+          const now = await sendToTab(tabId, { type: site.seek, adCheck: true }, 2000);
+          if (now && now.ad) {
+            // an ad started between the seek and the grab: drop the frame, redo this target
+            if (retakes < AD_RETAKES) { retakes += 1; i -= 1; } else retakes = 0;
+            continue;
+          }
+        }
+        retakes = 0;
         if (!dataUrl) continue; // tab not foreground / capture failed -> skip this target
         const rect = seek && seek.ok ? seek.rect : null;
         const dpr = seek && seek.ok ? (seek.dpr || 1) : 1;
@@ -121,13 +145,17 @@
         if (s.text && s.text.trim()) await store.addEvent({ t: startedAt + s.ms, type: 'transcript', final: true, text: s.text.trim() });
       }
     } finally {
-      await sendToTab(tabId, { type: MSG.LOOM_SEEK, restore: true }, 1000); // un-mute, restore controls
+      const back = await sendToTab(tabId, { type: site.seek, restore: true }, 1000); // un-mute, restore controls
+      if (back && Array.isArray(back.ads)) adBreaks.splice(0, adBreaks.length, ...back.ads);
     }
+    // every capture failed (tab hidden behind another / window minimized): say so
+    // instead of saving a bundle with a transcript and no pictures
+    if (seq === 0 && targets.length) return { frames: 0, segments: segments.length, error: 'no-frames', adBreaks };
     onProgress({ done: targets.length, total: targets.length, phase: 'done' });
     // lastMs = end of the video we covered, so the bundle's duration is meaningful
     const lastTarget = targets.length ? targets[targets.length - 1] : 0;
     const lastSeg = segments.length ? segments[segments.length - 1].ms : 0;
-    return { frames: seq, segments: segments.length, lastMs: Math.max(lastTarget, lastSeg) };
+    return { frames: seq, segments: segments.length, title, url, adBreaks, lastMs: Math.max(lastTarget, lastSeg) };
   }
 
   root.SCF.loomCapture = { runImport, cropToRect };

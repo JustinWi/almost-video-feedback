@@ -125,9 +125,13 @@
 
   // At stop we now only write the two small text files (screenshots were already
   // written during the recording), so this is fast.
-  async function writeSession(bundle, startedAtMs) {
+  // opts.transcript: also write transcript.md (imported videos)
+  async function writeSession(bundle, startedAtMs, opts) {
     const dir = sessionDir(startedAtMs);
     await download(textDataUrl(bundle.json, 'application/json'), dir + '/session.json');
+    if (opts && opts.transcript && bundle.transcriptMarkdown) {
+      await download(textDataUrl(bundle.transcriptMarkdown, 'text/markdown'), dir + '/' + root.SCF.exporter.TRANSCRIPT_FILE);
+    }
     const mdId = await download(textDataUrl(bundle.markdown, 'text/markdown'), dir + '/feedback.md');
     const mdPath = await resolvePath(mdId);
     return {
@@ -137,18 +141,13 @@
     };
   }
 
-  function clipboardText(mdPath, dir) {
+  function clipboardText(mdPath, dir, purpose) {
     const path = mdPath
       ? mdPath
       : dir
         ? 'in your Downloads folder at ' + dir + '/feedback.md'
         : '(feedback.md in your Downloads/ai-feedback folder)';
-    return [
-      'I recorded visual + spoken feedback on my web app. Please read the feedback file and',
-      'address each item. Screenshots are referenced relative to the file, in the same folder.',
-      '',
-      'Feedback file: ' + path,
-    ].join('\n');
+    return root.SCF.exporter.promptText(path, purpose);
   }
 
   root.SCF.downloads = {

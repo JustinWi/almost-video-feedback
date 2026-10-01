@@ -58,8 +58,16 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),
   persisted to IndexedDB as it happens. On stop, each spoken segment is attached to the nearest
   screenshot in time and the whole thing is rendered chronologically.
-- **Loom import**: on a `loom.com/share/...` page, click *Import this Loom video* in the popup to
-  turn the page's transcript + frames into the same `feedback.md` bundle — no live recording needed.
+- **Loom / YouTube import**: on a `loom.com/share/...` or `youtube.com/watch?v=...` page, clicking the
+  toolbar icon opens the popup; *Import this … video* turns the page's transcript + frames into the same
+  `feedback.md` bundle — no live recording needed. Keep the video tab in front while it imports.
+  When YouTube plays an ad, the import pauses: once the ad's Skip button appears it is skipped, ads
+  that can't be skipped play out muted, then frame-grabbing resumes where it stopped. The popup and
+  `session.json` (`adBreaks`) say how many ads came up and how each was handled.
+  On YouTube, tick **Reference video, not feedback** when the video is background material (a talk, a
+  tutorial): `feedback.md` and the clipboard prompt then tell the AI to learn from it, not to act on it.
+  The tick is remembered. Imports also write `transcript.md` (one `[mm:ss] line` per segment), and every
+  recording's transcript can be copied or downloaded from the Recordings page.
 
 ## Output
 
@@ -68,6 +76,7 @@ Written to `Downloads/ai-feedback/session-YYYYMMDD-HHMMSS/`:
 ```
 feedback.md          # agent-facing: instructions + chronological entries with screenshots
 session.json         # the same data, structured, for programmatic use
+transcript.md        # imported videos only: the full transcript, one [mm:ss] line each
 screenshots/0001.png
 screenshots/0002.png
 ...
