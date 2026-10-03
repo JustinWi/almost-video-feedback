@@ -13,6 +13,7 @@ const protocol = require('../src/common/protocol.js');
 const speech = require('../src/common/speech.js');
 const transcript = require('../src/common/transcript.js');
 const micTriage = require('../src/background/mic-triage.js');
+const updateCheck = require('../src/common/update-check.js');
 const videoSource = require('../src/common/video-source.js');
 
 let passed = 0;
@@ -576,6 +577,85 @@ test('mic-triage: only an offscreen failure can lead to the page mic', () => {
   assert.strictEqual(micTriage.pageFallback({ kind: 'page-blocked', fallback: true }, 'iframe'), false);
   assert.strictEqual(micTriage.pageFallback({ kind: 'blocked', fallback: true }, 'page'), false);
   assert.strictEqual(micTriage.pageFallback(null, 'offscreen'), false);
+});
+
+// ---- update-check: version compare + release parsing (drives the daily prompt) ----
+
+console.log('update-check:');
+
+test('parseVersion accepts v-prefix and pads to three parts', () => {
+  assert.deepStrictEqual(updateCheck.parseVersion('v0.9.0'), [0, 9, 0]);
+  assert.deepStrictEqual(updateCheck.parseVersion('1.2'), [1, 2, 0]);
+  assert.deepStrictEqual(updateCheck.parseVersion(' 10.0.3 '), [10, 0, 3]);
+});
+
+test('parseVersion rejects junk (no prompt from a malformed tag)', () => {
+  for (const bad of ['', 'latest', '1.2.3-beta', 'v1..2', '1.2.3.4', null, undefined, 9]) {
+    assert.strictEqual(updateCheck.parseVersion(bad), null, String(bad));
+  }
+});
+
+test('isNewer: strict, per-part numeric compare', () => {
+  assert.strictEqual(updateCheck.isNewer('0.9.0', '0.8.0'), true);
+  assert.strictEqual(updateCheck.isNewer('0.10.0', '0.9.1'), true); // numeric, not lexicographic
+  assert.strictEqual(updateCheck.isNewer('1.0.0', '0.99.99'), true);
+  assert.strictEqual(updateCheck.isNewer('0.9.0', '0.9.0'), false);
+  assert.strictEqual(updateCheck.isNewer('0.8.9', '0.9.0'), false);
+  assert.strictEqual(updateCheck.isNewer('garbage', '0.9.0'), false);
+});
+
+test('checkDue: never-checked, overdue, and future-timestamp clock skew are all due', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  assert.strictEqual(updateCheck.checkDue(1000, null, DAY), true);
+  assert.strictEqual(updateCheck.checkDue(2 * DAY, DAY - 1, DAY), true);
+  assert.strictEqual(updateCheck.checkDue(DAY + 500, DAY, DAY), false);
+  assert.strictEqual(updateCheck.checkDue(1000, 5 * DAY, DAY), true); // stored future time must not wedge checks
+});
+
+const releaseFixture = {
+  tag_name: 'v9.9.9',
+  name: 'v9.9.9',
+  html_url: 'https://github.com/JustinWi/almost-video-feedback/releases/tag/v9.9.9',
+  assets: [
+    { name: 'something-else.txt', browser_download_url: 'https://example.com/x.txt' },
+    { name: 'almost-video-feedback.zip', browser_download_url: 'https://example.com/avf.zip' },
+  ],
+};
+
+test('parseReleaseInfo picks the named zip asset', () => {
+  const info = updateCheck.parseReleaseInfo(releaseFixture, 'https://fallback/zip');
+  assert.strictEqual(info.version, '9.9.9');
+  assert.strictEqual(info.zipUrl, 'https://example.com/avf.zip');
+  assert.strictEqual(info.pageUrl, releaseFixture.html_url);
+});
+
+test('parseReleaseInfo falls back to the stable latest/download URL when the asset is missing', () => {
+  const info = updateCheck.parseReleaseInfo({ tag_name: 'v2.0.0', assets: [] }, 'https://fallback/zip');
+  assert.strictEqual(info.zipUrl, 'https://fallback/zip');
+});
+
+test('parseReleaseInfo rejects a response without a usable tag', () => {
+  assert.strictEqual(updateCheck.parseReleaseInfo({}, 'f'), null);
+  assert.strictEqual(updateCheck.parseReleaseInfo({ tag_name: 'nightly' }, 'f'), null);
+  assert.strictEqual(updateCheck.parseReleaseInfo(null, 'f'), null);
+});
+
+test('simulated "newer version available" end-to-end: fixture -> prompt state', () => {
+  // the exact pipeline the SW runs on each daily check
+  const info = updateCheck.parseReleaseInfo(releaseFixture, 'https://fallback/zip');
+  const upd = updateCheck.decideUpdate(info, '0.9.0');
+  assert.deepStrictEqual(upd, {
+    version: '9.9.9',
+    zipUrl: 'https://example.com/avf.zip',
+    pageUrl: releaseFixture.html_url,
+  });
+});
+
+test('decideUpdate stays silent when current version is same or newer', () => {
+  const info = updateCheck.parseReleaseInfo({ tag_name: 'v0.9.0', assets: [] }, 'f');
+  assert.strictEqual(updateCheck.decideUpdate(info, '0.9.0'), null);
+  assert.strictEqual(updateCheck.decideUpdate(info, '1.0.0'), null);
+  assert.strictEqual(updateCheck.decideUpdate(null, '0.9.0'), null);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

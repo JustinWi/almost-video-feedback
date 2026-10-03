@@ -50,6 +50,16 @@ header { display: flex; align-items: center; justify-content: space-between; }
   border-radius: 9px; padding: 9px 11px; font-size: 12.5px;
 }
 .banner.error { background: rgba(244,63,94,.12); border-color: rgba(244,63,94,.4); color: #fecaca; }
+.banner.update {
+  background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.35); color: #bbf7d0;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.banner.update[hidden] { display: none; }
+.banner.update button {
+  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  border: 0; border-radius: 8px; padding: 6px 12px; background: #16a34a; color: #fff;
+}
+.banner.update button:hover { background: #15803d; }
 
 .live { background: #0b1220; border: 1px solid #1e293b; border-radius: 10px; padding: 11px; }
 .live-row { display: flex; align-items: center; gap: 8px; font-weight: 600; }

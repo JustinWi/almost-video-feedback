@@ -144,6 +144,15 @@
     $('error-banner').hidden = !lastError;
     if (lastError) $('error-banner').textContent = lastError;
 
+    // update banner — the popup opens after every save, so even click-to-record
+    // users (who never see the idle popup) get the nudge here
+    const upd = state.update && state.update.available;
+    $('update-banner').hidden = !upd;
+    if (upd) {
+      $('update-text').textContent =
+        'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
+    }
+
     if (state.recording) {
       pill.className = 'pill recording';
       pill.textContent = 'Recording';
@@ -441,6 +450,11 @@
     if (!id) return;
     armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
+  $('update-go').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
+    window.close();
+  });
+
   $('recordings').addEventListener('click', () => openRecordings());
   $('view').addEventListener('click', () => openRecordings());
   $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());

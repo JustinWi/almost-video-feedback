@@ -20,6 +20,7 @@
     { id: 'circleRatio', path: 'circleRatio', type: 'float' },
     { id: 'showOverlay', path: 'showOverlay', type: 'checkbox' },
     { id: 'clickStartsRecording', path: 'clickStartsRecording', type: 'checkbox' },
+    { id: 'updateCheck', path: 'updateCheck', type: 'checkbox' },
     { id: 't_start', path: 'triggers.start', type: 'checkbox' },
     { id: 't_navigation', path: 'triggers.navigation', type: 'checkbox' },
     { id: 't_route', path: 'triggers.route', type: 'checkbox' },
@@ -111,6 +112,22 @@
         'Double Control-Option-click (or the clear-drawings button next to ✎ on the overlay) clears.';
     }
   })();
+
+  // manual update check: ask the SW to hit GitHub now and say what it found
+  document.getElementById('checkNow').addEventListener('click', () => {
+    const status = document.getElementById('checkNowStatus');
+    status.textContent = 'checking…';
+    chrome.runtime.sendMessage({ type: self.SCF.MSG.UPDATE_CHECK_NOW }, (u) => {
+      void chrome.runtime.lastError;
+      if (u && u.available) {
+        status.textContent = 'v' + u.available.version + ' is available — see the toolbar menu → Update.';
+      } else if (u) {
+        status.textContent = "You're up to date (v" + u.current + ').';
+      } else {
+        status.textContent = "Couldn't check (offline?) — will retry daily.";
+      }
+    });
+  });
 
   cfg.load().then(populate);
 })();

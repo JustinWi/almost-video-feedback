@@ -107,6 +107,15 @@ and load that folder (steps below). Or clone this repo and load the folder direc
 
 Requires Chrome 116+.
 
+## Updating
+
+Chrome doesn't auto-update unpacked extensions, so the extension **checks once a day** for a new
+GitHub release (version tag only — no user data; disable in Settings → Updates). When one is out
+you'll see a green **↑** on the toolbar icon, a notification, and an **Update** button in the menu.
+Clicking any of them opens a guided page: download the zip, extract it over your extension folder
+(the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
+clone instead? `git pull`, then the same Reload button.
+
 ## Microphone
 
 Transcription runs in a hidden **extension-origin iframe**, so you grant the microphone to the
@@ -129,8 +138,10 @@ down — and screenshots keep recording either way.
 ## Privacy & security
 
 Short version: **your recordings stay on your machine.** There is no backend — no servers, accounts,
-or telemetry. The extension makes **no network requests of its own** (independently audited; the only
-`fetch` is of a local `data:` URL). Full
+or telemetry. The extension sends **no user data anywhere**: its only network request is an optional
+**once-a-day version check** (a single GET to `api.github.com` for this repo's latest release tag —
+nothing about you or your recordings attached; turn it off in **Settings → Updates**). Beyond that,
+the only `fetch` is of a local `data:` URL. Full
 [privacy policy](https://justinwi.github.io/almost-video-feedback/privacy.html).
 
 - **Where data lives:** screenshots, transcripts, and the bundle are written to your **Downloads**

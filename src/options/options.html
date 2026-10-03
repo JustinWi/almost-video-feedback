@@ -91,6 +91,15 @@
       </section>
 
       <section>
+        <h2>Updates</h2>
+        <label class="inline"><input type="checkbox" id="updateCheck" /> Check once a day for a new version and show an Update prompt when one is out. The check asks GitHub for the latest release tag only — nothing about you or your recordings is sent.</label>
+        <p>
+          <button id="checkNow" type="button">Check for updates now</button>
+          <span id="checkNowStatus" class="muted"></span>
+        </p>
+      </section>
+
+      <section>
         <h2>Overlay</h2>
         <label class="inline"><input type="checkbox" id="showOverlay" /> Show the on-page recording overlay (transcript bar + buttons)</label>
       </section>
@@ -112,6 +121,7 @@
         <span id="saved" class="saved"></span>
       </div>
     </div>
+    <script src="../common/protocol.js"></script>
     <script src="../common/config.js"></script>
     <script src="options.js"></script>
   </body>

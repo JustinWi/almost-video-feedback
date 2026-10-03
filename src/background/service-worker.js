@@ -10,6 +10,7 @@ importScripts(
   '../common/config.js',
   '../common/transcript.js',
   '../common/video-source.js',
+  '../common/update-check.js',
   'image-hash.js',
   'mic-triage.js',
   'session-store.js',
@@ -17,7 +18,8 @@ importScripts(
   'loom-timeline.js',
   'capture.js',
   'downloads.js',
-  'loom-capture.js'
+  'loom-capture.js',
+  'updater.js'
 );
 
 const { MSG, TRIGGER } = self.SCF;
@@ -71,8 +73,17 @@ function setBadge(mode) {
     chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
     chrome.action.setTitle({ title: 'Saving feedback…' });
   } else {
-    chrome.action.setBadgeText({ text: '' });
-    chrome.action.setTitle({ title: 'Almost Video Feedback' });
+    // idle — this is the only state the update nudge may occupy; it must never
+    // paint over the recording/paused/saving badges above
+    const upd = self.SCF.updater && self.SCF.updater.availableNow();
+    if (upd) {
+      chrome.action.setBadgeText({ text: '↑' });
+      chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
+      chrome.action.setTitle({ title: 'Update available — v' + upd.version + ' (open the menu → Update)' });
+    } else {
+      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setTitle({ title: 'Almost Video Feedback' });
+    }
   }
 }
 
@@ -120,6 +131,7 @@ function statePayload() {
     screenshots: capture.getSeq(),
     tabId: session ? session.tabId : null,
     lastResult,
+    update: self.SCF.updater ? self.SCF.updater.state() : null,
   };
 }
 
@@ -773,6 +785,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse(togglePause());
       return false;
 
+    case MSG.UPDATE_CHECK_NOW:
+      (async () => {
+        sendResponse(await self.SCF.updater.check(true));
+      })();
+      return true;
+
     case MSG.DELETE_RECORDING:
       (async () => {
         const ok = await discardRecording(msg.id);
@@ -1115,3 +1133,12 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 recoverPromise = recover();
 recoverPromise.then(applyActionMode);
+
+// daily update check (alarm + boot catch-up); when its state changes, repaint
+// the idle badge and tell any open popup — never while a session owns the badge
+self.SCF.updater.init({
+  onChange: () => {
+    if (!(session && session.active) && !stopping && !starting) setBadge('idle');
+    broadcastStatus();
+  },
+});

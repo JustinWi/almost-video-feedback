@@ -71,6 +71,13 @@
     // clicking the toolbar icon starts a recording immediately (no popup) when idle
     clickStartsRecording: true,
 
+    // Updates. Unpacked installs don't auto-update, so once a day the extension
+    // asks GitHub for the latest release tag and prompts when it's newer. The
+    // request carries no user data (see README "Privacy"). The URL is a tunable
+    // so a test can point the check at a fixture.
+    updateCheck: true,
+    updateCheckUrl: 'https://api.github.com/repos/JustinWi/almost-video-feedback/releases/latest',
+
     // On-page drawing while recording: the overlay's ✎ pen toggle (then left-drag), or
     // right-drag / Control+Option+left-drag (the safe combo on a Mac) to draw on the
     // page so you can point at things — the

@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Update — Almost Video Feedback</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: flex; justify-content: center;
+        background: radial-gradient(1200px 600px at 50% -10%, #221c26, #141117 60%);
+        color: #f4f2ee;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 15px; line-height: 1.55;
+      }
+      .page { width: 620px; max-width: calc(100vw - 32px); padding: 40px 16px 64px; }
+      h1 { font-size: 22px; letter-spacing: -0.01em; margin: 0 0 6px; }
+      .versions { color: #b9b4ab; margin: 0 0 22px; }
+      .versions b { color: #4ade80; }
+      .card {
+        background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.1);
+        border-radius: 14px; padding: 18px 20px; margin: 0 0 14px;
+      }
+      .step { display: flex; gap: 14px; align-items: flex-start; padding: 10px 0; }
+      .step + .step { border-top: 1px solid rgba(255,255,255,.07); }
+      .n {
+        flex: 0 0 26px; height: 26px; border-radius: 50%; text-align: center; line-height: 26px;
+        background: rgba(255,69,58,.18); color: #fda4af; font-weight: 700; font-size: 13px;
+      }
+      .step.done .n { background: rgba(34,197,94,.18); color: #4ade80; }
+      .t b { display: block; margin-bottom: 2px; }
+      .muted { color: #b9b4ab; font-size: 13.5px; }
+      button {
+        font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+        border-radius: 9px; padding: 8px 14px; margin-top: 8px;
+        border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: #f4f2ee;
+      }
+      button:hover { background: rgba(255,255,255,.14); }
+      button.go { background: #e11d48; border-color: #e11d48; }
+      button.go:hover { background: #be123c; }
+      button.green { background: #15803d; border-color: #15803d; }
+      button.green:hover { background: #166534; }
+      .alt { margin-top: 20px; }
+      .alt h2 { font-size: 14px; color: #b9b4ab; font-weight: 600; margin: 0 0 8px; }
+      code { background: rgba(255,255,255,.08); border-radius: 5px; padding: 1px 6px; font-size: 13px; }
+      #uptodate { display: none; }
+      .ok-big { font-size: 40px; margin-bottom: 8px; }
+      a { color: #fda4af; }
+      .note { margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div id="hasupdate">
+        <h1>Update Almost Video Feedback</h1>
+        <p class="versions">You're on v<span id="cur">?</span> → <b>v<span id="next">?</span></b> is available.</p>
+
+        <div class="card">
+          <div class="step" id="s1">
+            <div class="n">1</div>
+            <div class="t">
+              <b>Download the new version</b>
+              <span class="muted">One zip, saved to your Downloads folder.</span><br />
+              <button id="dl" class="go">⬇ Download v<span id="next2">?</span> (zip)</button>
+              <div id="dl-done" class="muted note" hidden>✓ Downloading — check your Downloads folder.</div>
+            </div>
+          </div>
+          <div class="step" id="s2">
+            <div class="n">2</div>
+            <div class="t">
+              <b>Replace your extension folder's files</b>
+              <span class="muted">
+                Open the zip and copy everything into the folder you originally loaded the
+                extension from, replacing the old files. (Chrome can't do this step for an
+                unpacked extension — it's the one manual part.)
+              </span>
+            </div>
+          </div>
+          <div class="step" id="s3">
+            <div class="n">3</div>
+            <div class="t">
+              <b>Reload the extension</b>
+              <span class="muted">One click. This page will close — that's normal. The toolbar
+                menu will show the new version.</span><br />
+              <button id="reload" class="green">⟳ I replaced the files — reload now</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="alt card">
+          <h2>Running from a git clone instead?</h2>
+          <div class="muted">Run <code>git pull</code> in the extension folder, then hit the reload button above. Done.</div>
+        </div>
+
+        <p class="muted">
+          If the extension shows an error after reloading, the files weren't fully replaced —
+          re-extract the zip over the folder and
+          <button id="openext" class="small" style="margin:0 4px; padding:4px 10px;">open chrome://extensions</button>
+          to hit Reload on its card.
+        </p>
+      </div>
+
+      <div id="uptodate">
+        <div class="ok-big">✅</div>
+        <h1>You're up to date</h1>
+        <p class="versions">v<span id="cur2">?</span> is the latest version.</p>
+        <button id="recheck">Check again</button>
+        <span id="recheck-status" class="muted" style="margin-left:10px;"></span>
+      </div>
+    </div>
+    <script src="../common/protocol.js"></script>
+    <script src="update.js"></script>
+  </body>
+</html>

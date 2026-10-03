@@ -26,8 +26,10 @@ network endpoints to attack. The most relevant areas are:
 ## What this extension does with your data
 
 See the **Privacy & security** section of the [README](README.md). In short: screenshots and
-transcripts stay on your device (Downloads + the extension's local storage); the extension itself
-makes no network requests. Speech transcription uses Chrome's built-in Web Speech API, which sends
+transcripts stay on your device (Downloads + the extension's local storage); the extension sends no
+user data anywhere — its only network request is an optional once-a-day GET to `api.github.com` for
+the latest release tag (the update check; off in Settings → Updates). Speech transcription uses
+Chrome's built-in Web Speech API, which sends
 microphone audio to the browser's speech service (Google) — the same as voice typing.
 
 ## Supported versions

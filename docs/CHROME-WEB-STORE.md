@@ -66,8 +66,9 @@ WHAT IT DOES
 YOUR DATA STAYS ON YOUR MACHINE
 There are no servers, accounts, or analytics. Recordings are saved to your Downloads folder and the
 extension's local storage; nothing is sent to the developer. Transcription uses Chrome's built-in
-speech feature, which (like voice typing) sends audio to the browser's speech service. Full details:
-https://justinwi.github.io/almost-video-feedback/privacy.html
+speech feature, which (like voice typing) sends audio to the browser's speech service. A once-a-day
+update check asks GitHub for the latest version number only — no user data (off in Settings). Full
+details: https://justinwi.github.io/almost-video-feedback/privacy.html
 
 Open source (MIT) and dependency-free — read every line at
 https://github.com/JustinWi/almost-video-feedback
@@ -117,7 +118,8 @@ Paste these into the "Permission justification" boxes.
 | `downloads.ui` | To briefly hide Chrome's download shelf while the bundle is written, so it doesn't pop up over the popup. Restored immediately after. |
 | `storage` | To store the user's settings and the local library of recent recordings. |
 | `offscreen` | Two uses: (1) copy the ready-to-paste prompt to the clipboard after a recording is saved, and (2) run the microphone transcription (Web Speech) when the recorded page's `Permissions-Policy` header blocks microphone use inside embedded frames, which would otherwise silently disable the transcript. Audio is processed by Chrome's built-in speech API exactly as in the normal path and is never stored or transmitted by the extension. |
-| `alarms` | For the optional periodic "safety-net" screenshot during a recording. |
+| `alarms` | Two uses: the optional periodic "safety-net" screenshot during a recording, and the once-a-day update check (unpacked/sideloaded installs don't auto-update). |
+| `notifications` | To show one notification when a newer version of the extension is available (at most once per new version). No other notifications are shown. |
 | `webNavigation` | To take a screenshot when the recorded tab navigates to a new page, so page changes are captured. |
 | `clipboardWrite` | To copy the agent prompt (with the file path) to the clipboard when a recording finishes. |
 
@@ -143,7 +145,9 @@ Answer truthfully — these are the expected answers for this extension:
 - In the privacy-practices notes field, you can paste: *"All recording data stays on the user's
   device (Downloads + local storage). The extension has no backend and transmits nothing to the
   developer. Voice transcription uses Chrome's built-in Web Speech API, which sends audio to the
-  browser's speech service (Google); this is disclosed in the privacy policy."*
+  browser's speech service (Google); this is disclosed in the privacy policy. The only outbound
+  request the extension makes is an optional once-a-day GET to api.github.com for the latest
+  release tag (update check) with no user data attached."*
 
 > Note: because of `<all_urls>`, the store listing will show "Read and change all your data on all
 > websites." That's expected for a screenshot/review tool — the privacy policy + description explain

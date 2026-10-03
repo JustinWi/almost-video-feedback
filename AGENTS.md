@@ -101,5 +101,6 @@ README's install link points at `/releases/latest`).
 | Transcript fixes (while paused) | `src/common/transcript.js` (pure), `GET_TRANSCRIPT` / `EDIT_TRANSCRIPT` in the service worker |
 | On-page drawing (canvas) | `src/content/annotate.js` (`SCF_ANNOTATE`; drawn into the page so it lands in shots). Injected in **all frames** via a 2nd `content_scripts` entry — in sub-frames it self-drives off SW messages (`ANNOTATE_READY`/`SESSION_STARTED`/`CLEAR_ANNOTATIONS`); the top frame is driven by `content.js`. |
 | Clipboard + fallback recognition | `src/offscreen/*` (clipboard writes; speech via getUserMedia + `SpeechRecognition.start(track)` when the page blocks the iframe recognizer) |
+| Updates (daily check + prompt) | `src/common/update-check.js` (pure version/release logic, tested), `src/background/updater.js` (alarm + GitHub fetch + badge/notification — sends no user data), `src/update/*` (guided update page ending in `chrome.runtime.reload()`). Manual test without publishing: SW console → `SCF.updater.simulate('9.9.9')`, then `SCF.updater.clear()`. |
 | UI | `src/popup/*`, `src/options/*`, `src/history/*` |
 | Shared | `src/common/protocol.js`, `config.js` |
