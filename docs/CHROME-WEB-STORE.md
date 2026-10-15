@@ -45,8 +45,9 @@ drawings included), bundles everything into one file, and copies a ready-to-past
 clipboard. Paste it into your AI agent (Claude Code, Cursor, Copilot, or any tool that reads files)
 and it has your words and the screenshots, in order.
 
-Already recorded a Loom? Open the Loom share page and click "Import this Loom video" — it turns the
-Loom's transcript and frames into the exact same bundle, with no re-recording.
+Already recorded a Loom, or found a YouTube walkthrough? Open the Loom share page or the YouTube
+video and click "Import this video" — it turns the video's transcript and frames into the exact same
+bundle, with no re-recording.
 
 WHAT IT DOES
 • Real-time voice transcription while you record (built into your browser — no API key).
@@ -61,13 +62,14 @@ WHAT IT DOES
 • One-paste handoff: on stop, a prompt + the file path are already on your clipboard.
 • A recordings library to review past sessions, fix mis-transcribed words, prune screenshots, share a
   session as a zip, or delete a recording you don't need.
-• Import a Loom: turn an existing Loom review video (its transcript + frames) into the same bundle.
+• Import a Loom or YouTube video: turn its transcript + frames into the same bundle (mark a YouTube
+  tutorial as "reference" and your agent learns from it instead of treating it as bug reports).
+• Up to 1000 screenshots per recording, with a big on-page warning if you ever reach the limit.
 
 YOUR DATA STAYS ON YOUR MACHINE
 There are no servers, accounts, or analytics. Recordings are saved to your Downloads folder and the
 extension's local storage; nothing is sent to the developer. Transcription uses Chrome's built-in
-speech feature, which (like voice typing) sends audio to the browser's speech service. A once-a-day
-update check asks GitHub for the latest version number only — no user data (off in Settings). Full
+speech feature, which (like voice typing) sends audio to the browser's speech service. Full
 details: https://justinwi.github.io/almost-video-feedback/privacy.html
 
 Open source (MIT) and dependency-free — read every line at
@@ -80,7 +82,7 @@ Made by teachinge.org — https://teachinge.org
 
 ```
 Turn a user's feedback about a web page — recorded live (spoken narration + screenshots, with
-optional on-page drawing) or imported from an existing Loom video — into a single local file
+optional on-page drawing) or imported from an existing Loom or YouTube video — into a single local file
 (a transcript plus correlated screenshots) that the user can hand to an AI coding agent.
 ```
 
@@ -110,7 +112,7 @@ Paste these into the "Permission justification" boxes.
 
 | Permission | Justification |
 |---|---|
-| **Host permission `<all_urls>`** | The user can record feedback on any website they're reviewing, so the content script (recording overlay, input tracking, and the on-page drawing layer — which also runs in sub-frames so the user can draw over embedded content) and `captureVisibleTab` must be able to run on any URL. It also covers `loom.com` for the Loom-video import (reading the page's transcript and capturing video frames). The extension acts only on the single tab the user explicitly starts recording on or imports from, and only during that action. |
+| **Host permission `<all_urls>`** | The user can record feedback on any website they're reviewing, so the content script (recording overlay, input tracking, and the on-page drawing layer — which also runs in sub-frames so the user can draw over embedded content) and `captureVisibleTab` must be able to run on any URL. It also covers `loom.com` and `youtube.com` for the video import (reading the page's transcript and capturing video frames). The extension acts only on the single tab the user explicitly starts recording on or imports from, and only during that action. |
 | `tabs` | To capture the visible area of the tab (`captureVisibleTab`) — both for live-recording screenshots and for grabbing frames from an imported Loom video — and to read that tab's URL and title so each screenshot can be labeled in the feedback file. |
 | `activeTab` | To operate on the user's current tab when they start a recording or a Loom import from the toolbar. |
 | `scripting` | To inject the extension's content scripts (recording overlay, drawing layer, Loom-import bridge) into a tab that was already open before the extension loaded, when the user starts a recording or import there. Only the extension's own bundled files are injected — no remote or generated code. |
@@ -118,8 +120,8 @@ Paste these into the "Permission justification" boxes.
 | `downloads.ui` | To briefly hide Chrome's download shelf while the bundle is written, so it doesn't pop up over the popup. Restored immediately after. |
 | `storage` | To store the user's settings and the local library of recent recordings. |
 | `offscreen` | Two uses: (1) copy the ready-to-paste prompt to the clipboard after a recording is saved, and (2) run the microphone transcription (Web Speech) when the recorded page's `Permissions-Policy` header blocks microphone use inside embedded frames, which would otherwise silently disable the transcript. Audio is processed by Chrome's built-in speech API exactly as in the normal path and is never stored or transmitted by the extension. |
-| `alarms` | Two uses: the optional periodic "safety-net" screenshot during a recording, and the once-a-day update check (unpacked/sideloaded installs don't auto-update). |
-| `notifications` | To show one notification when a newer version of the extension is available (at most once per new version). No other notifications are shown. |
+| `alarms` | Two uses: the optional periodic "safety-net" screenshot during a recording, and the once-a-day update check, which only runs in copies installed from GitHub (unpacked installs don't auto-update); Web Store installs skip it because the store updates them. |
+| `notifications` | Only in copies installed from GitHub (not from the Web Store): one notification when a newer version is available (at most once per new version). No other notifications are shown. |
 | `webNavigation` | To take a screenshot when the recorded tab navigates to a new page, so page changes are captured. |
 | `clipboardWrite` | To copy the agent prompt (with the file path) to the clipboard when a recording finishes. |
 
@@ -145,9 +147,9 @@ Answer truthfully — these are the expected answers for this extension:
 - In the privacy-practices notes field, you can paste: *"All recording data stays on the user's
   device (Downloads + local storage). The extension has no backend and transmits nothing to the
   developer. Voice transcription uses Chrome's built-in Web Speech API, which sends audio to the
-  browser's speech service (Google); this is disclosed in the privacy policy. The only outbound
-  request the extension makes is an optional once-a-day GET to api.github.com for the latest
-  release tag (update check) with no user data attached."*
+  browser's speech service (Google); this is disclosed in the privacy policy. The Web Store version
+  makes no other outbound requests (the GitHub update check is skipped for store installs, since the
+  store updates them)."*
 
 > Note: because of `<all_urls>`, the store listing will show "Read and change all your data on all
 > websites." That's expected for a screenshot/review tool — the privacy policy + description explain
