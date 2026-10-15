@@ -18,8 +18,9 @@
 
 You don't have to watch for new versions — the extension **checks once a day** and tells you when
 one is out (a green **↑** on the toolbar icon, a notification, and an **Update** button in the
-menu). Click Update and follow the three steps: download the zip, extract it over this same folder
-(replace the old files), and press the **Reload** button on that page. That's it — the toolbar menu
+menu). Click Update and follow the three steps: download the zip, copy the
+contents of its `almost-video-feedback` folder into this same folder (replace the old files; don't
+nest the folder inside), and press the **Reload** button on that page. That's it — the toolbar menu
 will show the new version. The check sends no personal data (it only asks GitHub for the latest
 version number) and can be turned off in Settings → Updates.
 

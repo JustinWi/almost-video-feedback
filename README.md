@@ -115,8 +115,8 @@ Requires Chrome 116+.
 Chrome doesn't auto-update unpacked extensions, so the extension **checks once a day** for a new
 GitHub release (version tag only — no user data; disable in Settings → Updates). When one is out
 you'll see a green **↑** on the toolbar icon, a notification, and an **Update** button in the menu.
-Clicking any of them opens a guided page: download the zip, extract it over your extension folder
-(the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
+Clicking any of them opens a guided page: download the zip, copy the contents of its
+`almost-video-feedback` folder over your extension folder (the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
 clone instead? `git pull`, then the same Reload button.
 
 ## Microphone

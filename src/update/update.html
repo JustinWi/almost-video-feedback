@@ -68,11 +68,13 @@
           <div class="step" id="s2">
             <div class="n">2</div>
             <div class="t">
-              <b>Replace your extension folder's files</b>
+              <b>Put the new files over the old ones</b>
               <span class="muted">
-                Open the zip and copy everything into the folder you originally loaded the
-                extension from, replacing the old files. (Chrome can't do this step for an
-                unpacked extension — it's the one manual part.)
+                Open the zip. Inside is one folder, <code>almost-video-feedback</code>: open it and
+                copy <b>everything inside it</b> into the folder you loaded the extension from (the
+                one with <code>manifest.json</code> in it), replacing the old files when asked.
+                Don't drop the folder itself in there, or Chrome keeps running the old version.
+                (Chrome can't do this step for an unpacked extension — it's the one manual part.)
               </span>
             </div>
           </div>
@@ -93,8 +95,9 @@
         </div>
 
         <p class="muted">
-          If the extension shows an error after reloading, the files weren't fully replaced —
-          re-extract the zip over the folder and
+          Still on the old version, or an error after reloading? The files weren't replaced —
+          copy the contents of the zip's <code>almost-video-feedback</code> folder over your
+          extension folder again and
           <button id="openext" class="small" style="margin:0 4px; padding:4px 10px;">open chrome://extensions</button>
           to hit Reload on its card.
         </p>
