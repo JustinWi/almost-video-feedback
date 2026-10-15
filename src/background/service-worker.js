@@ -122,6 +122,27 @@ async function sendToOffscreen(msg) {
   }
 }
 
+// ------------------------------------------------- screenshot limit warning
+
+// The capture pipeline just kept the last screenshot this recording may have.
+// Mark the moment in the timeline (feedback.md renders it) and put a big warning
+// on the page that stays until the user dismisses it or the recording ends.
+function onCapReached({ cap, t }) {
+  if (!session || !session.active || session.capWarning) return;
+  const atText = self.SCF.exporter.relTime(t - session.startedAt);
+  session.capWarning = { cap, t, atText, dismissed: false };
+  store.addEvent({ t, type: 'cap', cap }).catch(() => {});
+  store.patchMeta({ capWarning: session.capWarning }).catch(() => {});
+  notifyContent(session.tabId, { type: MSG.SCREENSHOT_CAP, capWarning: activeCapWarning() });
+  broadcastStatus();
+}
+
+// What a (re-)armed overlay needs: the banner (unless dismissed) + the maxed-out counter.
+function activeCapWarning() {
+  const w = session && session.capWarning;
+  return w ? { cap: w.cap, atText: w.atText, dismissed: !!w.dismissed } : null;
+}
+
 function statePayload() {
   return {
     recording: !!(session && session.active),
@@ -289,6 +310,7 @@ async function startRecording(requestedTabId) {
 
   capture.begin({ windowId: tab.windowId, tabId: tab.id, settings, lastUrl: tab.url, lastTitle: tab.title, startedAt });
   capture.hooks.onKept = () => broadcastStatus();
+  capture.hooks.onCapReached = onCapReached;
   transcriptOpen = true;
   transcriptText = '';
   inkFrames.clear();
@@ -685,6 +707,7 @@ async function followFocus() {
     startedAt: session.startedAt,
     transcript: transcriptText, // so the new window's overlay shows what we've heard
     recMode: session.recMode || 'iframe', // offscreen recognition keeps running across tab moves
+    capWarning: activeCapWarning(),
   });
 
   // capture the newly-focused view + record the page change
@@ -808,7 +831,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           transcript: transcriptText,
           paused: !!session.paused,
           recMode: session.recMode || 'iframe',
+          capWarning: activeCapWarning(), // a navigation mustn't lose the limit warning
         });
+      }
+      return false;
+
+    case MSG.SCREENSHOT_CAP_DISMISS:
+      if (session && session.capWarning && !session.capWarning.dismissed) {
+        session.capWarning.dismissed = true;
+        store.patchMeta({ capWarning: session.capWarning }).catch(() => {});
       }
       return false;
 
@@ -1078,6 +1109,7 @@ async function recover() {
         recFallbackTried: !!meta.recFallbackTried,
         recFallbackReason: meta.recFallbackReason || null,
         pageFallbackTried: !!meta.pageFallbackTried,
+        capWarning: meta.capWarning || null,
       };
       capture.restore(
         { windowId: meta.windowId, tabId: meta.tabId, settings, lastUrl: meta.lastUrl, lastTitle: meta.lastTitle, startedAt: meta.startedAt },
@@ -1085,6 +1117,7 @@ async function recover() {
         meta.lastKeptHash || null
       );
       capture.hooks.onKept = () => broadcastStatus();
+      capture.hooks.onCapReached = onCapReached;
       transcriptOpen = true;
       // rebuild the running transcript from stored finals so a re-armed overlay
       // after this restart still shows what was already heard

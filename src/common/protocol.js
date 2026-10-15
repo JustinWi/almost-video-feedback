@@ -14,6 +14,7 @@
     PAGE_INFO: 'page_info',
     ROUTE_CHANGED: 'route_changed',
     PREPARE_CAPTURE_ACK: 'prepare_capture_ack',
+    SCREENSHOT_CAP_DISMISS: 'screenshot_cap_dismiss', // user closed the "limit reached" warning
 
     // service worker -> content
     SESSION_STARTED: 'session_started',
@@ -25,6 +26,7 @@
     CAPTURE_DONE: 'capture_done',
     TRANSCRIPT_UPDATE: 'transcript_update',
     SCREENSHOT_TOAST: 'screenshot_toast',
+    SCREENSHOT_CAP: 'screenshot_cap', // the per-recording screenshot limit was just reached -> big warning
     STATUS: 'status',
 
     // popup/options <-> service worker

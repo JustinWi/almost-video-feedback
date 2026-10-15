@@ -83,7 +83,10 @@ screenshots/0002.png
 ```
 
 `feedback.md` interleaves, in order: what you did, what you said at that moment, the page URL, the
-clicked/selected element, and the screenshot. The clipboard gets a prompt like:
+clicked/selected element, and the screenshot. A recording keeps up to **1000 screenshots** (Settings →
+Max screenshots / session). When it hits that, a big warning goes up on the page and `feedback.md` gets
+a line saying when (`Screenshot limit reached at 23:12; later entries have no pictures.`); your voice is
+still recorded after that. The clipboard gets a prompt like:
 
 > I recorded visual + spoken feedback on my web app. Please read the feedback file and address
 > each item. Screenshots are referenced relative to the file, in the same folder.
@@ -223,7 +226,7 @@ The library keeps the most recent 40 sessions (older ones are pruned automatical
 Right-click the extension → **Options** (or the popup's **Settings** link) to tune: whether clicking
 the toolbar icon starts a recording instantly, transcription language, which triggers are active,
 capture format (PNG/JPEG), the dedup aggressiveness, how **click** screenshots dedup (smart /
-always / global), whether **on-page drawing** is enabled, the safety cap, and the timing thresholds
+always / global), whether **on-page drawing** is enabled, the screenshot limit (default 1000), and the timing thresholds
 for scroll/dwell/circle detection.
 
 ---

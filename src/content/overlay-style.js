@@ -89,6 +89,7 @@
   button.pause { font-size: 12px; }
   button.pause:hover { background: rgba(245,158,11,.28); border-color: rgba(245,158,11,.55); }
   .shots { font-size: 11.5px; opacity: .75; }
+  .shots.capped { opacity: 1; font-weight: 800; color: #fff; background: #dc2626; border-radius: 6px; padding: 1px 6px; }
 
   .sep { width:1px; height:22px; background: rgba(255,255,255,.14); flex:0 0 auto; }
 

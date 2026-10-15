@@ -114,6 +114,7 @@
   let pageSpeech = null;
   let recLang = 'en-US';
   let micErrorMsg = '';
+  let capState = null; // {cap, atText, dismissed} once the screenshot limit is hit this recording
   // 'iframe' normally; 'offscreen' when the page blocked the iframe's mic and
   // the SW moved recognition into the extension's offscreen document (we then
   // must NOT inject a competing iframe recognizer here)
@@ -435,7 +436,11 @@
   }
 
   function updateShots() {
-    if (shotsEl) shotsEl.textContent = '📸 ' + shotCount;
+    if (!shotsEl) return;
+    // past the limit the counter stays red ("📸 MAX") even after the banner is dismissed
+    shotsEl.textContent = capState ? '📸 MAX' : '📸 ' + shotCount;
+    shotsEl.classList.toggle('capped', !!capState);
+    shotsEl.title = capState ? 'Screenshot limit (' + capState.cap + ') reached at ' + capState.atText : '';
   }
 
   function enableDrag(handle) {
@@ -860,7 +865,10 @@
     lastRouteUrl = location.href;
     recLang = (cfg.language || 'en-US');
     recMode = msg.recMode || 'iframe';
+    capState = null;
     if (cfg.showOverlay !== false) buildOverlay();
+    if (msg.capWarning) showCapWarning(msg.capWarning);
+    else hideCapWarning();
     startAnnotate();
     startTracking();
     patchHistory();
@@ -885,6 +893,8 @@
     unpatchHistory();
     closeEditor();
     destroyOverlay();
+    hideCapWarning();
+    capState = null;
     finalText = '';
     interimText = '';
     micErrorMsg = '';
@@ -974,6 +984,78 @@
     }
   }
 
+  // ------------------------------------------ "screenshot limit reached" banner
+  // Big and sticky on purpose: past the limit nothing the user shows gets a
+  // picture, and a quiet console warning once cost a 10-minute stretch of
+  // feedback. Stays until "Got it" or the recording ends; re-shown after a
+  // navigation (the SW re-sends it in SESSION_STARTED) unless dismissed.
+  const CAP_CSS = `
+    :host{ all: initial; }
+    .w{ position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      box-sizing: border-box; width: min(640px, calc(100vw - 32px));
+      display: flex; align-items: flex-start; gap: 16px;
+      padding: 18px 20px; border-radius: 16px;
+      background: linear-gradient(180deg, #7f1d1d, #5b1010);
+      border: 2px solid #fca5a5; color: #fff7ed;
+      box-shadow: 0 24px 70px -12px rgba(0,0,0,.75), 0 0 0 6px rgba(239,68,68,.28);
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      z-index: 2147483647; pointer-events: auto;
+      animation: drop .38s cubic-bezier(.2,.9,.25,1) both, ring 1.6s ease-in-out .4s 3; }
+    @keyframes drop{ from{ opacity: 0; transform: translate(-50%,-24px) } to{ opacity: 1; transform: translate(-50%,0) } }
+    @keyframes ring{ 50%{ box-shadow: 0 24px 70px -12px rgba(0,0,0,.75), 0 0 0 14px rgba(239,68,68,.12) } }
+    .ic{ flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+      background: #fbbf24; color: #451a03; font-size: 28px; font-weight: 900; line-height: 1; }
+    .tx{ flex: 1 1 auto; min-width: 0; }
+    .h{ font-size: 19px; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; }
+    .s{ font-size: 14px; line-height: 1.45; margin-top: 6px; color: #fed7aa; }
+    .s b{ color: #fff; }
+    .row{ display: flex; justify-content: flex-end; margin-top: 12px; }
+    button{ font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+      padding: 8px 18px; border-radius: 10px; border: 0; background: #fff7ed; color: #7f1d1d; }
+    button:hover{ background: #fff; }
+    button:focus-visible{ outline: 3px solid #fbbf24; outline-offset: 2px; }
+    @media (max-width: 480px){
+      .w{ top: 10px; padding: 14px; gap: 12px; }
+      .ic{ width: 36px; height: 36px; font-size: 22px; }
+      .h{ font-size: 16px; }
+      .s{ font-size: 13px; }
+    }`;
+
+  function showCapWarning(w) {
+    capState = Object.assign({}, w);
+    updateShots();
+    if (capState.dismissed) return;
+    try {
+      if (document.getElementById('__scf_cap_host')) return;
+      const host = document.createElement('div');
+      host.id = '__scf_cap_host';
+      host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;';
+      const sh = host.attachShadow({ mode: 'open' });
+      sh.innerHTML =
+        '<style>' + CAP_CSS + '</style>' +
+        '<div class="w" role="alert">' +
+        '<div class="ic" aria-hidden="true">!</div>' +
+        '<div class="tx"><div class="h">Screenshot limit reached: ' + escapeHtml(String(capState.cap)) +
+        ' of ' + escapeHtml(String(capState.cap)) + '</div>' +
+        '<div class="s">Nothing after <b>' + escapeHtml(capState.atText || '') + '</b> gets a picture. ' +
+        'Your voice is still being recorded. To keep capturing, stop and start a new recording.</div>' +
+        '<div class="row"><button type="button" id="ok">Got it</button></div></div></div>';
+      (document.documentElement || document.body).appendChild(host);
+      sh.getElementById('ok').addEventListener('click', () => {
+        capState.dismissed = true;
+        hideCapWarning();
+        send({ type: MSG.SCREENSHOT_CAP_DISMISS });
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function hideCapWarning() {
+    const el = document.getElementById('__scf_cap_host');
+    if (el) el.remove();
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return;
     switch (msg.type) {
@@ -1030,6 +1112,9 @@
         // no flashing toast — just bump the static counter in the bar
         shotCount = msg.seq || shotCount + 1;
         updateShots();
+        break;
+      case MSG.SCREENSHOT_CAP:
+        if (recording && msg.capWarning) showCapWarning(msg.capWarning);
         break;
       case MSG.ANNOTATE_INK_ANY:
         // any frame (this one or an iframe) has a drawing -> show the clear button

@@ -31,7 +31,7 @@
   function buildTargets(timesMs, opts) {
     opts = opts || {};
     const floorMs = opts.floorMs > 0 ? opts.floorMs : 15000;
-    const maxFrames = opts.maxFrames > 0 ? opts.maxFrames : 300;
+    const maxFrames = opts.maxFrames > 0 ? opts.maxFrames : 1000;
 
     // anchors: t=0 + every (valid, non-negative) segment time
     const anchors = sortedUnique([0].concat((timesMs || []).filter((t) => typeof t === 'number' && t >= 0).map((t) => Math.round(t))));
