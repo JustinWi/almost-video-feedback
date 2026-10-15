@@ -66,7 +66,15 @@
     return { version: releaseInfo.version, zipUrl: releaseInfo.zipUrl, pageUrl: releaseInfo.pageUrl };
   }
 
-  const api = { parseVersion, isNewer, checkDue, parseReleaseInfo, decideUpdate };
+  // chrome.management.getSelf().installType: 'normal' = installed from the Chrome
+  // Web Store, which updates the extension by itself, so our zip-and-copy prompt
+  // must stay silent there. Unpacked ('development'), sideloaded or admin
+  // installs never auto-update -> they need the GitHub check.
+  function needsGithubCheck(installType) {
+    return installType !== 'normal';
+  }
+
+  const api = { parseVersion, isNewer, checkDue, parseReleaseInfo, decideUpdate, needsGithubCheck };
 
   root.SCF = root.SCF || {};
   root.SCF.updateCheck = root.SCF.updateCheck || api;

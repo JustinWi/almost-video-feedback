@@ -651,6 +651,14 @@ test('simulated "newer version available" end-to-end: fixture -> prompt state', 
   });
 });
 
+test('Web Store installs skip the GitHub update check; unpacked/sideloaded ones need it', () => {
+  assert.strictEqual(updateCheck.needsGithubCheck('normal'), false);
+  assert.strictEqual(updateCheck.needsGithubCheck('development'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck('sideload'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck('admin'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck(undefined), true);
+});
+
 test('decideUpdate stays silent when current version is same or newer', () => {
   const info = updateCheck.parseReleaseInfo({ tag_name: 'v0.9.0', assets: [] }, 'f');
   assert.strictEqual(updateCheck.decideUpdate(info, '0.9.0'), null);

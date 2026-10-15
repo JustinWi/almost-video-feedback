@@ -46,9 +46,29 @@
     return next;
   }
 
+  // Web Store copies update themselves (see updateCheck.needsGithubCheck).
+  // getSelf() needs no "management" permission.
+  let githubCheck = null;
+  async function needsGithubCheck() {
+    if (githubCheck === null) {
+      try {
+        githubCheck = LIB.needsGithubCheck((await chrome.management.getSelf()).installType);
+      } catch (e) {
+        githubCheck = true; // can't tell -> behave like an unpacked install
+      }
+    }
+    return githubCheck;
+  }
+
   async function init(opts) {
     if (opts && opts.onChange) onChange = opts.onChange;
     try {
+      if (!(await needsGithubCheck())) {
+        await patchStore({ available: null });
+        available = null;
+        onChange();
+        return; // no alarm, no prompts: Chrome updates store installs itself
+      }
       const st = await getStore();
       if (st.available && !LIB.isNewer(st.available.version, current())) {
         // we're now running the version we prompted about — clear the prompt
@@ -76,6 +96,7 @@
 
   async function check(force) {
     try {
+      if (!(await needsGithubCheck())) return state();
       const settings = await root.SCF_CONFIG.load();
       if (!force && settings.updateCheck === false) return state();
       const url = settings.updateCheckUrl || root.SCF_CONFIG.DEFAULTS.updateCheckUrl;
