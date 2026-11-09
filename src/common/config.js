@@ -65,6 +65,11 @@
     // Trigger tuning
     clickCaptureDelayMs: 150,
     navSettleMs: 500,
+    recognizerSilentMs: 3000, // no word from the recognizer iframe by then = treat it as dead (sandboxed page)
+    // the overlay never sits on "Starting microphone…" forever: if the fallback
+    // recognizers aren't live by these deadlines, the SW moves on or says why
+    offscreenMicStartMs: 12000, // offscreen doc: mic grab + two audio-start attempts fit inside
+    pageMicStartMs: 20000, // page mic: room for the user to answer Chrome's prompt
     heartbeatSeconds: 30,
     scrollIdleMs: 500,
     scrollMinDeltaPx: 200,

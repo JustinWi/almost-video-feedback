@@ -114,6 +114,17 @@ function broadcast(msg) {
   }
 }
 
+// Start recognition in the offscreen document. If it's already running this just
+// makes it report MIC_LISTENING again, which a re-armed overlay is waiting for.
+function armOffscreenRecognizer() {
+  ensureOffscreen().then(() => {
+    broadcast({
+      type: MSG.OFFSCREEN_RECOGNIZE,
+      lang: (session && session.settings && session.settings.language) || 'en-US',
+    });
+  });
+}
+
 async function sendToOffscreen(msg) {
   try {
     return await chrome.runtime.sendMessage(Object.assign({ target: 'offscreen' }, msg));
@@ -602,14 +613,7 @@ function togglePause() {
     }
     setBadge('recording');
     notifyContent(session.tabId, { type: MSG.SESSION_RESUMED, recMode: session.recMode || 'iframe' });
-    if (session.recMode === 'offscreen') {
-      ensureOffscreen().then(() => {
-        broadcast({
-          type: MSG.OFFSCREEN_RECOGNIZE,
-          lang: (session && session.settings && session.settings.language) || 'en-US',
-        });
-      });
-    }
+    if (session.recMode === 'offscreen') armOffscreenRecognizer();
   }
   broadcastStatus();
   return statePayload();
@@ -691,6 +695,7 @@ async function followFocus() {
     session.recMode = 'iframe';
     session.recFallbackTried = false;
     session.pageFallbackTried = false;
+    session.offscreenFailKind = null;
     store.patchMeta({ recMode: 'iframe', recFallbackTried: false, pageFallbackTried: false }).catch(() => {});
   }
   session.tabId = tab.id;
@@ -709,6 +714,7 @@ async function followFocus() {
     recMode: session.recMode || 'iframe', // offscreen recognition keeps running across tab moves
     capWarning: activeCapWarning(),
   });
+  if (session.recMode === 'offscreen') armOffscreenRecognizer(); // the new overlay needs to hear it's live
 
   // capture the newly-focused view + record the page change
   store.addEvent({ t: Date.now(), type: 'navigation', url: tab.url, title: tab.title || null });
@@ -833,6 +839,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           recMode: session.recMode || 'iframe',
           capWarning: activeCapWarning(), // a navigation mustn't lose the limit warning
         });
+        // the overlay just reset to "Starting…", and offscreen won't fire audio start again
+        if (session.recMode === 'offscreen' && !session.paused) armOffscreenRecognizer();
       }
       return false;
 
@@ -1014,6 +1022,8 @@ const MIC_ERROR_STATUS = {
   blocked: 'Microphone was blocked. Allow it for the extension (toolbar popup), then restart recording.',
   'site-mic':
     'Microphone is blocked for this site. Click the site-settings icon left of the address bar, allow Microphone, then pause and resume.',
+  timeout: "The microphone didn't start — recording continues without a transcript. Pause and resume to try again.",
+  sandboxed: 'This page is sandboxed, which blocks the microphone — recording continues without a transcript.',
 };
 
 function handleTranscribeError(msg) {
@@ -1046,12 +1056,9 @@ function handleTranscribeError(msg) {
     session.recFallbackReason = verdict.kind;
     store.patchMeta({ recMode: 'offscreen', recFallbackTried: true, recFallbackReason: verdict.kind }).catch(() => {});
     console.warn('[scf] page recognizer blocked (' + verdict.kind + ') — falling back to offscreen recognition');
-    ensureOffscreen().then(() => {
-      broadcast({
-        type: MSG.OFFSCREEN_RECOGNIZE,
-        lang: (session && session.settings && session.settings.language) || 'en-US',
-      });
-    });
+    // the overlay holds the offscreen doc to a start-up deadline, so it must know
+    notifyContent(session.tabId, { type: MSG.REC_MODE, recMode: 'offscreen' });
+    armOffscreenRecognizer();
     return;
   }
 
@@ -1060,6 +1067,7 @@ function handleTranscribeError(msg) {
   // Chrome asks once for that site ("claude.ai wants to use your microphone").
   if (self.SCF.micTriage.pageFallback(verdict, msg.src) && !session.pageFallbackTried) {
     session.pageFallbackTried = true;
+    session.offscreenFailKind = verdict.kind; // the real story if the page turns out sandboxed
     session.recMode = 'page';
     store.patchMeta({ recMode: 'page', pageFallbackTried: true }).catch(() => {});
     console.warn('[scf] offscreen recognizer failed (' + verdict.kind + ') — falling back to the page mic');
@@ -1072,12 +1080,18 @@ function handleTranscribeError(msg) {
   // page-policy block, the page block is still the story, unless the fallback
   // discovered the real problem is the permission grant itself. A refusal in the
   // page itself means the SITE's mic permission is blocked.
+  // A sandboxed page can't use its own mic, so the offscreen failure is what the
+  // user can act on when it was the extension's permission.
   let kind = verdict.kind;
-  if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio') {
+  if (msg.src === 'page' && kind === 'sandboxed') {
+    if (session.offscreenFailKind === 'permission') kind = 'permission';
+  } else if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio' && kind !== 'timeout') {
     kind = 'site-mic';
   } else if (msg.src === 'offscreen' && kind !== 'permission' && session.recFallbackReason === 'page-blocked') {
     kind = 'page-blocked';
   }
+  // a recognizer that missed its deadline may still be trying: stop it holding the mic
+  if (verdict.kind === 'timeout') broadcast({ type: MSG.RECOGNIZER_STOP });
   notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true, micErrorKind: kind });
   broadcast({ type: MSG.STATUS, state: statePayload(), error: MIC_ERROR_STATUS[kind] || MIC_ERROR_STATUS.blocked });
 }

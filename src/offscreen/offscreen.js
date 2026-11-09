@@ -19,7 +19,10 @@
   'use strict';
   const MSG = self.SCF.MSG;
   const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
-  const AUDIO_START_TIMEOUT_MS = 7000;
+  // Both audio-start attempts (track, then plain) and the mic grab must fit inside
+  // the overlay's offscreenMicStartMs (12 s), so we report before it gives up on us.
+  const AUDIO_START_TIMEOUT_MS = 4000;
+  const MIC_GRAB_TIMEOUT_MS = 3000;
 
   function post(msg) {
     try {
@@ -181,7 +184,12 @@
   }
 
   async function startRecognition(msgLang) {
-    if (wantRec) return; // already running (e.g. duplicate resume)
+    if (wantRec) {
+      // Already running (e.g. duplicate resume). A re-armed overlay starts on
+      // "Starting…" and audio start only fires once, so say we're live again.
+      if (audioLive) post({ type: MSG.MIC_LISTENING, src: 'offscreen' });
+      return;
+    }
     if (!SR) {
       postError('speech-recognition-unavailable');
       return;
@@ -191,9 +199,27 @@
     triedPlain = false;
     useTrack = true;
     try {
-      recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // An offscreen doc can't show a permission prompt; a grab that would need one
+      // can sit unsettled. Don't wait on it forever.
+      const grab = navigator.mediaDevices.getUserMedia({ audio: true });
+      let timer = null;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          grab.then((s) => s.getTracks().forEach((t) => t.stop()), () => {}); // if it lands late, let go
+          reject(Object.assign(new Error('mic grab timed out'), { name: 'TimeoutError' }));
+        }, MIC_GRAB_TIMEOUT_MS);
+      });
+      try {
+        recStream = await Promise.race([grab, timeout]);
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (e) {
       wantRec = false;
+      if (e && e.name === 'TimeoutError') {
+        postError('start-timeout');
+        return;
+      }
       let permState = null;
       try {
         const s = await navigator.permissions.query({ name: 'microphone' });

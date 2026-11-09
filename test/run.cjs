@@ -432,6 +432,18 @@ test('buildZipBytes round-trips entry names + data', () => {
   assert.strictEqual(storedData, '{"a":1}');
 });
 
+console.log('inkPathData (strokes -> SVG path):');
+
+test('each stroke becomes its own subpath, so strokes never join up', () => {
+  const one = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
+  const two = [{ x: 5, y: 6 }, { x: 7.5, y: 8 }, { x: 9, y: 10 }];
+  assert.strictEqual(gesture.inkPathData([one, two]), 'M1 2L3 4M5 6L7.5 8L9 10');
+});
+
+test('no strokes means an empty path', () => {
+  assert.strictEqual(gesture.inkPathData([]), '');
+});
+
 console.log('snapAxis (Shift = straight line):');
 
 test('mostly-horizontal drag snaps to a horizontal line', () => {
@@ -497,6 +509,26 @@ test('applyEdit never touches non-transcript events or unknown ids', () => {
 });
 
 // ---- mic-triage: classify why speech recognition failed ----
+
+test('a recognizer iframe that never reported falls back like a page block', () => {
+  // a page sandboxed without allow-scripts loads the iframe but never runs it
+  const v = micTriage.classify({ error: 'recognizer-silent', src: 'iframe' });
+  assert.deepStrictEqual(v, { kind: 'page-blocked', fallback: true });
+});
+
+test('a fallback recognizer that misses its start-up deadline is a timeout, then tries the page', () => {
+  const v = micTriage.classify({ error: 'start-timeout', src: 'offscreen' });
+  assert.deepStrictEqual(v, { kind: 'timeout', fallback: false });
+  assert.strictEqual(micTriage.pageFallback(v, 'offscreen'), true);
+  // ...and a page mic that times out is the end of the line
+  assert.strictEqual(micTriage.pageFallback(micTriage.classify({ error: 'start-timeout', src: 'page' }), 'page'), false);
+});
+
+test('a CSP-sandboxed page reports sandboxed, with no further fallback', () => {
+  const v = micTriage.classify({ error: 'sandboxed-page', src: 'page' });
+  assert.deepStrictEqual(v, { kind: 'sandboxed', fallback: false });
+  assert.strictEqual(micTriage.pageFallback(v, 'page'), false);
+});
 
 test('mic-triage: page Permissions-Policy block -> page-blocked + offscreen fallback', () => {
   const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: false, permState: 'granted' });

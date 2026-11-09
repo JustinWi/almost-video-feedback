@@ -31,6 +31,9 @@
     circleRatio: 3.2,
     annotate: true,
     annotateColor: '#ff2d95',
+    recognizerSilentMs: 3000,
+    offscreenMicStartMs: 12000,
+    pageMicStartMs: 20000,
     triggers: Object.assign({}, DEFAULT_TRIGGERS),
   };
   const annotate = self.SCF_ANNOTATE || null;
@@ -111,6 +114,7 @@
   // REC_MODE 'page' and we run Web Speech right here on the page's own mic
   // permission (Chrome asks once for that site).
   let recIframe = null;
+  let recWatchdog = null;
   let pageSpeech = null;
   let recLang = 'en-US';
   let micErrorMsg = '';
@@ -132,6 +136,9 @@
     blocked: '⚠️ Microphone blocked — allow it for the extension, then restart recording.',
     'site-mic':
       '⚠️ Microphone blocked for this site — click the site-settings icon left of the address bar, allow Microphone, then press ⏸ and ▶.',
+    timeout: '⚠️ The microphone didn’t start — recording continues without a transcript. Press ⏸ then ▶ to try again.',
+    sandboxed:
+      '⚠️ No transcript on this page: it’s sandboxed, which blocks the microphone. Screenshots still record; other pages work normally.',
   };
 
   // keepalive port so the service worker isn't evicted during quiet stretches
@@ -779,12 +786,22 @@
   function startRecognizer() {
     if (recIframe || pageSpeech) return;
     micErrorMsg = '';
-    if (recMode === 'offscreen') return; // the SW runs recognition in the offscreen doc
+    if (recMode === 'offscreen') {
+      // the SW runs recognition in the offscreen doc; we only hold it to a deadline
+      if (!micListening) armRecWatchdog('offscreen');
+      return;
+    }
     if (recMode === 'page') {
-      // last resort: this page's own mic (resuming after "blocked" retries it)
+      // last resort: this page's own mic (resuming after "blocked" retries it).
+      // A sandboxed page has no origin to grant a mic to, so don't even try.
+      if (sandboxedPage()) {
+        send({ type: MSG.TRANSCRIBE_ERROR, error: 'sandboxed-page', src: 'page' });
+        return;
+      }
       if (!speechLib) return;
       pageSpeech = speechLib.create({ lang: recLang, post: send });
       pageSpeech.start();
+      armRecWatchdog('page');
       return;
     }
     try {
@@ -796,12 +813,54 @@
       recIframe.style.cssText =
         'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none;';
       (document.documentElement || document.body).appendChild(recIframe);
+      armRecWatchdog('iframe');
     } catch (e) {
       /* ignore */
     }
   }
 
+  // Served with a CSP sandbox (no allow-same-origin): the page's origin is opaque.
+  function sandboxedPage() {
+    try {
+      return self.origin === 'null';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // The overlay must never sit on "Starting microphone…" forever. Whichever host
+  // runs recognition gets a deadline to report the mic live; past it we report
+  // the silence for it and the SW moves to the next fallback or says why.
+  //  - iframe: a page sandboxed without allow-scripts loads it but never runs it,
+  //    so it can't report anything itself.
+  //  - offscreen / page: a mic grab or speech start that never settles.
+  function armRecWatchdog(mode) {
+    clearTimeout(recWatchdog);
+    const ms =
+      mode === 'offscreen' ? cfg.offscreenMicStartMs : mode === 'page' ? cfg.pageMicStartMs : cfg.recognizerSilentMs;
+    recWatchdog = setTimeout(() => {
+      if (micListening || paused || !recording || recMode !== mode) return;
+      if (mode === 'iframe') {
+        stopRecognizer();
+        send({ type: MSG.TRANSCRIBE_ERROR, error: 'recognizer-silent', src: 'iframe' });
+        return;
+      }
+      if (mode === 'page') stopRecognizer();
+      send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: mode });
+    }, ms);
+  }
+
+  // Proof the mic works: the recognizer said so, or its words arrived. Words count
+  // because a re-armed overlay can miss the one-time announcement.
+  function onMicLive() {
+    clearTimeout(recWatchdog);
+    if (micListening || paused) return;
+    micListening = true;
+    applyMicState();
+  }
+
   function stopRecognizer() {
+    clearTimeout(recWatchdog);
     if (recIframe && recIframe.parentNode) recIframe.parentNode.removeChild(recIframe);
     recIframe = null;
     if (pageSpeech) pageSpeech.stop(); // graceful: its last final segment still arrives
@@ -876,7 +935,7 @@
     // editable instead), or if recognition already runs in the offscreen
     // document (a second recognizer would double every transcript segment)
     if (paused) loadEditor();
-    else if (recMode !== 'offscreen') startRecognizer();
+    else startRecognizer(); // in offscreen mode this only arms the start-up deadline
     startKeepalive();
     send({ type: MSG.PAGE_INFO, url: location.href, title: document.title });
   }
@@ -914,8 +973,9 @@
     micListening = false; // mic restarts -> "starting microphone…" until it's live again
     micErrorMsg = '';
     if (msg && msg.recMode) recMode = msg.recMode;
-    // in offscreen mode the SW restarts the offscreen recognizer itself
-    if (recMode !== 'offscreen') startRecognizer();
+    // in offscreen mode the SW restarts the offscreen recognizer itself; this
+    // only arms the start-up deadline
+    startRecognizer();
     applyMicState();
   }
 
@@ -1075,8 +1135,9 @@
         showSavedToast();
         break;
       case MSG.REC_MODE:
-        // the SW moved recognition — last resort: into this page, on the site's
-        // own mic (Chrome asks once for this site)
+        // the SW moved recognition: to the offscreen doc (we only time its start),
+        // or as a last resort into this page, on the site's own mic (Chrome asks
+        // once for this site)
         recMode = msg.recMode || 'iframe';
         stopRecognizer();
         micListening = false;
@@ -1089,21 +1150,21 @@
         if (pageSpeech) pageSpeech.stop();
         break;
       case MSG.MIC_LISTENING:
-        if (!micListening) {
-          micListening = true;
-          applyMicState();
-        }
+        onMicLive();
         break;
       case MSG.TRANSCRIPT_UPDATE:
         if (msg.micError) {
+          clearTimeout(recWatchdog);
           micErrorMsg = MIC_ERROR_TEXT[msg.micErrorKind] || MIC_ERROR_TEXT.blocked;
           applyMicState();
         } else if (msg.final) {
+          onMicLive();
           finalText += (finalText ? ' ' : '') + msg.text;
           interimText = '';
           if (paused) loadEditor(); // the last words flushed in after pausing
           else renderTranscript();
         } else {
+          onMicLive();
           interimText = msg.text;
           renderTranscript();
         }

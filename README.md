@@ -157,7 +157,7 @@ the only `fetch` is of a local `data:` URL. Full
 - **Permissions:** it requests broad permissions because it has to work on *any* site you review —
   `<all_urls>` (inject the overlay + read the page you're reviewing), screenshot the active tab, the
   microphone, downloads, and local storage. It only acts on the tab you're actively recording. The
-  lightweight **drawing layer** (a canvas you draw on) is also injected into sub-frames/iframes so you
+  lightweight **drawing layer** (an SVG layer you draw on) is also injected into sub-frames/iframes so you
   can draw over embedded content; like the rest of the extension it makes no network requests.
 - **Reviewing untrusted pages:** `feedback.md` includes text copied from the page (URLs, element
   labels, your selections). If you record on a page with attacker-controlled content, that text ends
