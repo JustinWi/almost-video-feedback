@@ -230,7 +230,7 @@
         clearTimeout(timer);
       }
     } catch (e) {
-      if (gen !== startGen) return; // a newer start owns the state now
+      if (gen !== startGen || !wantRec) return; // a newer start owns the state, or a pause stopped wanting the mic
       wantRec = false;
       if (e && e.name === 'TimeoutError') {
         postError('start-timeout');
@@ -259,6 +259,7 @@
     wantRec = false;
     clearTimeout(watchdog);
     clearTimeout(restartTimer);
+    audioLive = false; // a resume must prove the mic live again
     const r = recognition;
     const stream = recStream;
     recognition = null; // a resume builds a fresh instance on a fresh stream (see `draining`)

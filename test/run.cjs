@@ -876,6 +876,41 @@ atest('capture under the cap never fires the warning', async () => {
   assert.strictEqual(r.hits.length, 0);
 });
 
+// folder-check against a fake extension folder: { path: string body | 'MISSING' }
+function fakeFolder(files) {
+  global.chrome = { runtime: { getURL: (p) => 'ext:/' + p } };
+  global.fetch = async (url) => {
+    const body = files[url.slice(5)];
+    if (body === undefined || body === 'MISSING') throw new TypeError('Failed to fetch');
+    return { ok: true, json: async () => JSON.parse(body), arrayBuffer: async () => new TextEncoder().encode(body).buffer };
+  };
+}
+
+atest('folderCheck.check: refuses a half-written listing or manifest, waits out a late listing', async () => {
+  // manifest.json caught mid-write -> no version -> refuse
+  fakeFolder({});
+  assert.strictEqual((await folderCheck.check(null, { settleMs: 0 })).ok, false);
+  // listing present but truncated -> refuse
+  fakeFolder({ 'release-files.json': '{"version":"0.10.8","fi' });
+  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, false);
+  // no listing at all (git checkout) -> unknown, reload allowed
+  fakeFolder({});
+  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, null);
+  // the listing lands during the settle wait -> it gets checked
+  const crypto = require('crypto');
+  const h = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  const files = { 'src/a.js': 'old' };
+  fakeFolder(files);
+  const p = folderCheck.check('0.10.8', { settleMs: 30 });
+  files['release-files.json'] = JSON.stringify({ version: '0.10.8', files: { 'src/a.js': h('new') } });
+  const r = await p;
+  assert.deepStrictEqual([r.ok, r.bad], [false, ['src/a.js']]);
+  files['src/a.js'] = 'new';
+  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, true);
+  delete global.chrome;
+  delete global.fetch;
+});
+
 (async () => {
   for (const t of asyncTests) {
     try {

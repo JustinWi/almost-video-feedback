@@ -38,14 +38,39 @@
     return s;
   }
 
-  async function check(diskVersion) {
-    let listing = null;
+  const SETTLE_MS = 1500;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // -> the listing object, null (absent), or 'unreadable' (present but not JSON: mid-write)
+  async function readListing() {
+    let r;
     try {
-      listing = await readFolder(LISTING, 'json');
+      r = await fetch(chrome.runtime.getURL(LISTING), { cache: 'no-store' });
     } catch (e) {
-      /* no listing: a git checkout, or a copy that hasn't reached it yet */
+      return null;
     }
-    if (!listing || !listing.files || listing.version !== diskVersion) return compareListing(null);
+    if (!r.ok) return null;
+    try {
+      return await r.json();
+    } catch (e) {
+      return 'unreadable';
+    }
+  }
+
+  async function check(diskVersion, opts) {
+    const settleMs = opts && opts.settleMs != null ? opts.settleMs : SETTLE_MS;
+    // a manifest.json caught mid-write can't be read: never reload into that
+    if (!diskVersion) return { ok: false, total: 0, bad: ['manifest.json'] };
+    const usable = (l) => l && l !== 'unreadable' && l.files && l.version === diskVersion;
+    let listing = await readListing();
+    if (!usable(listing)) {
+      // Explorer may write manifest.json a moment before release-files.json: give a
+      // copy-over time to bring the matching listing before calling it "no listing"
+      await sleep(settleMs);
+      listing = await readListing();
+    }
+    if (listing === 'unreadable') return { ok: false, total: 0, bad: [LISTING] };
+    if (!usable(listing)) return compareListing(null); // git checkout, or a listing left from another version
     const hashes = {};
     await Promise.all(
       Object.keys(listing.files).map(async (p) => {
@@ -62,8 +87,9 @@
   // plain words for a copy that isn't finished
   function describe(r) {
     const done = r.total - r.bad.length;
-    return 'The new files are still being copied into your extension folder (' + done + ' of ' + r.total +
-      ' done). Wait a moment, then click again. If this doesn\'t change, copy the zip\'s files over again.';
+    const count = r.total ? ' (' + done + ' of ' + r.total + ' done)' : '';
+    return 'The new files are still being copied into your extension folder' + count +
+      '. Wait a moment, then click again. If this doesn\'t change, copy the zip\'s files over again.';
   }
 
   const api = { LISTING, compareListing, check, describe };

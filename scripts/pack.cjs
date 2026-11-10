@@ -33,8 +33,11 @@ for (const d of DIRS) {
   if (fs.existsSync(p)) walk(p, files);
 }
 
+// hidden/OS junk (desktop.ini, Thumbs.db, .DS_Store) would be listed but may never be copied or served
+const JUNK = /^(\.|desktop\.ini$|thumbs\.db$)/i;
 const entries = files
   .filter((full) => path.basename(full) !== 'release-files.json') // a stale copy from an earlier zip
+  .filter((full) => !path.relative(root, full).split(path.sep).some((part) => JUNK.test(part)))
   .map((full) => ({
     name: TOP + '/' + path.relative(root, full).split(path.sep).join('/'),
     data: new Uint8Array(fs.readFileSync(full)),
@@ -46,7 +49,11 @@ const listing = { version: JSON.parse(fs.readFileSync(path.join(root, 'manifest.
 for (const e of entries) {
   listing.files[e.name.slice(TOP.length + 1)] = crypto.createHash('sha256').update(e.data).digest('hex');
 }
-entries.push({ name: TOP + '/release-files.json', data: new Uint8Array(Buffer.from(JSON.stringify(listing, null, 1) + '\n')) });
+// Zip order = write order for in-order extractors (7-Zip, tar, unzip): the listing first and
+// manifest.json last, so the folder only looks like the new version once every file has landed.
+const isManifest = (e) => e.name === TOP + '/manifest.json';
+entries.sort((a, b) => isManifest(a) - isManifest(b));
+entries.unshift({ name: TOP + '/release-files.json', data: new Uint8Array(Buffer.from(JSON.stringify(listing, null, 1) + '\n')) });
 
 const outDir = path.join(root, 'dist');
 fs.mkdirSync(outDir, { recursive: true });
