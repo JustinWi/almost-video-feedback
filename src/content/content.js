@@ -115,6 +115,8 @@
   // permission (Chrome asks once for that site).
   let recIframe = null;
   let recWatchdog = null;
+  let recWatchGen = 0; // bumped on every arm/clear, so a held deadline can't fire late
+  let micPermWatch = null; // the site's mic PermissionStatus, while a page deadline waits on Chrome's prompt
   let pageSpeech = null;
   let recLang = 'en-US';
   let micErrorMsg = '';
@@ -835,33 +837,77 @@
   //  - iframe: a page sandboxed without allow-scripts loads it but never runs it,
   //    so it can't report anything itself.
   //  - offscreen / page: a mic grab or speech start that never settles.
+  // The page mic is the exception while Chrome's site-mic prompt is open: Web
+  // Speech doesn't start until the user answers it, so the deadline holds until
+  // they do and then starts over (see holdPageDeadline).
   function armRecWatchdog(mode) {
-    clearTimeout(recWatchdog);
+    clearRecWatchdog();
+    const gen = recWatchGen;
     const ms =
       mode === 'offscreen' ? cfg.offscreenMicStartMs : mode === 'page' ? cfg.pageMicStartMs : cfg.recognizerSilentMs;
     recWatchdog = setTimeout(() => {
-      if (micListening || paused || !recording || recMode !== mode) return;
+      if (gen !== recWatchGen || micListening || paused || !recording || recMode !== mode) return;
       if (mode === 'iframe') {
         stopRecognizer();
         send({ type: MSG.TRANSCRIBE_ERROR, error: 'recognizer-silent', src: 'iframe' });
         return;
       }
-      if (mode === 'page') stopRecognizer();
+      if (mode === 'page') {
+        holdPageDeadline(gen);
+        return;
+      }
       send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: mode });
     }, ms);
+  }
+
+  // The page mic's deadline ran out. If the site's mic permission is still
+  // 'prompt', the user hasn't answered Chrome's prompt yet: stopping now would
+  // leave them a prompt whose Allow does nothing. Wait for the answer instead,
+  // then give the recognizer a fresh deadline (Allow -> it starts; Never allow ->
+  // it reports not-allowed). Otherwise the mic really is silent: time out.
+  function holdPageDeadline(gen) {
+    const stale = () => gen !== recWatchGen || micListening || paused || !recording || recMode !== 'page';
+    let query = null;
+    try {
+      query = navigator.permissions.query({ name: 'microphone' });
+    } catch (e) {
+      /* no Permissions API: treat as not prompting */
+    }
+    Promise.resolve(query)
+      .catch(() => null)
+      .then((status) => {
+        if (stale()) return;
+        if (status && speechLib && speechLib.waitsOnPrompt(status.state)) {
+          micPermWatch = status;
+          status.onchange = () => {
+            if (!stale()) armRecWatchdog('page');
+          };
+          return;
+        }
+        stopRecognizer();
+        send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
+      });
+  }
+
+  function clearRecWatchdog() {
+    clearTimeout(recWatchdog);
+    recWatchdog = null;
+    recWatchGen++;
+    if (micPermWatch) micPermWatch.onchange = null;
+    micPermWatch = null;
   }
 
   // Proof the mic works: the recognizer said so, or its words arrived. Words count
   // because a re-armed overlay can miss the one-time announcement.
   function onMicLive() {
-    clearTimeout(recWatchdog);
+    clearRecWatchdog();
     if (micListening || paused) return;
     micListening = true;
     applyMicState();
   }
 
   function stopRecognizer() {
-    clearTimeout(recWatchdog);
+    clearRecWatchdog();
     if (recIframe && recIframe.parentNode) recIframe.parentNode.removeChild(recIframe);
     recIframe = null;
     if (pageSpeech) pageSpeech.stop(); // graceful: its last final segment still arrives
@@ -1155,7 +1201,7 @@
         break;
       case MSG.TRANSCRIPT_UPDATE:
         if (msg.micError) {
-          clearTimeout(recWatchdog);
+          clearRecWatchdog();
           micErrorMsg = MIC_ERROR_TEXT[msg.micErrorKind] || MIC_ERROR_TEXT.blocked;
           applyMicState();
         } else if (msg.final) {

@@ -470,6 +470,15 @@ test('permission errors are recognized, others are not', () => {
   assert.ok(!speech.isPermissionError(undefined));
 });
 
+test("page-mic deadline holds only while Chrome's site-mic prompt is open", () => {
+  // Web Speech fires no start/audiostart until the prompt is answered
+  assert.strictEqual(speech.waitsOnPrompt('prompt'), true);
+  // answered, or no way to tell: a mic that stays silent past the deadline times out
+  for (const s of ['granted', 'denied', undefined, null, '', 'PROMPT']) {
+    assert.strictEqual(speech.waitsOnPrompt(s), false, String(s));
+  }
+});
+
 console.log('transcript (edit while paused):');
 
 const txEvents = [

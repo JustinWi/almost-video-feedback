@@ -7,8 +7,8 @@
  * The service worker decides when (see mic-triage.js pageFallback) and tells the
  * content script via REC_MODE. Every message it posts carries src: 'page'.
  *
- * Classic script -> globalThis.SCF_SPEECH; isPermissionError is also exported
- * for the Node unit tests.
+ * Classic script -> globalThis.SCF_SPEECH; isPermissionError and waitsOnPrompt
+ * are also exported for the Node unit tests.
  */
 (function (root) {
   'use strict';
@@ -18,6 +18,17 @@
   /** A recognizer error that means "this context may not use the microphone". */
   function isPermissionError(err) {
     return PERMISSION_ERRORS.indexOf(String(err || '').toLowerCase()) !== -1;
+  }
+
+  /**
+   * Is the page mic still waiting on the USER rather than on the mic? While the
+   * site's mic permission is 'prompt', Chrome's "<site> wants to use your
+   * microphone" prompt is open and Web Speech fires neither start nor audiostart
+   * until it is answered, so the overlay's start-up deadline must not run out.
+   * Any other state (granted, denied, unknown) means the deadline applies.
+   */
+  function waitsOnPrompt(permState) {
+    return permState === 'prompt';
   }
 
   /**
@@ -123,7 +134,7 @@
     return { start, stop };
   }
 
-  const api = { isPermissionError, create };
+  const api = { isPermissionError, waitsOnPrompt, create };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
