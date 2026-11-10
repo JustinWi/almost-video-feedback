@@ -886,27 +886,34 @@ function fakeFolder(files) {
   };
 }
 
-atest('folderCheck.check: refuses a half-written listing or manifest, waits out a late listing', async () => {
-  // manifest.json caught mid-write -> no version -> refuse
-  fakeFolder({});
-  assert.strictEqual((await folderCheck.check(null, { settleMs: 0 })).ok, false);
-  // listing present but truncated -> refuse
-  fakeFolder({ 'release-files.json': '{"version":"0.10.8","fi' });
-  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, false);
-  // no listing at all (git checkout) -> unknown, reload allowed
-  fakeFolder({});
-  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, null);
-  // the listing lands during the settle wait -> it gets checked
+atest('folderCheck.check: refuses half-written or still-landing copies, waits out a late listing', async () => {
+  const M = (v) => JSON.stringify({ version: v });
   const crypto = require('crypto');
   const h = (t) => crypto.createHash('sha256').update(t).digest('hex');
-  const files = { 'src/a.js': 'old' };
+  const L = (v, files) => JSON.stringify({ version: v, files });
+  // manifest.json caught mid-write -> refuse
+  fakeFolder({ 'manifest.json': '{"vers' });
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, false);
+  // listing present but truncated -> refuse
+  fakeFolder({ 'manifest.json': M('0.10.8'), 'release-files.json': '{"version":"0.10.8","fi' });
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, false);
+  // listing newer than the manifest (zip order: listing first, manifest last) -> still landing
+  fakeFolder({ 'manifest.json': M('0.10.8'), 'release-files.json': L('0.10.9', {}) });
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, false);
+  // no listing (git checkout), or one left from an older version -> unknown, reload allowed
+  fakeFolder({ 'manifest.json': M('0.10.8') });
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, null);
+  fakeFolder({ 'manifest.json': M('0.10.8'), 'release-files.json': L('0.10.7', {}) });
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, null);
+  // the listing lands during the settle wait -> it gets checked
+  const files = { 'manifest.json': M('0.10.8'), 'src/a.js': 'old' };
   fakeFolder(files);
-  const p = folderCheck.check('0.10.8', { settleMs: 30 });
-  files['release-files.json'] = JSON.stringify({ version: '0.10.8', files: { 'src/a.js': h('new') } });
+  const p = folderCheck.check({ settleMs: 30 });
+  files['release-files.json'] = L('0.10.8', { 'src/a.js': h('new') });
   const r = await p;
   assert.deepStrictEqual([r.ok, r.bad], [false, ['src/a.js']]);
   files['src/a.js'] = 'new';
-  assert.strictEqual((await folderCheck.check('0.10.8', { settleMs: 0 })).ok, true);
+  assert.strictEqual((await folderCheck.check({ settleMs: 0 })).ok, true);
   delete global.chrome;
   delete global.fetch;
 });

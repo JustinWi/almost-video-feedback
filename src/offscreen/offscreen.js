@@ -275,7 +275,13 @@
       drainDone(r);
       return;
     }
-    // safety: if onend never fires, don't hold the mic open
+    // safety: if onend is slow, turn the mic off at 2 s but let the instance keep
+    // finalizing (a slow speech service may still deliver the last words); give up at 10 s
+    setTimeout(() => {
+      if (!draining.has(r)) return;
+      stopTracks(draining.get(r));
+      draining.set(r, null);
+    }, 2000);
     setTimeout(() => {
       if (!draining.has(r)) return;
       try {
@@ -284,7 +290,7 @@
         /* ignore */
       }
       drainDone(r);
-    }, 2000);
+    }, 10000);
   }
 
   // ------------------------------------------------------------- messages

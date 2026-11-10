@@ -47,16 +47,18 @@
     $('disk-line').hidden = !diskKnown;
     if (diskKnown) $('disk').textContent = u.onDisk;
     if (!ready) pollTimer = setTimeout(refresh, POLL_MS);
-    else watchCopy(step.version);
+    else watchCopy();
   }
 
   // Ready by manifest.json, but a zip copy may still be landing: hold the button
   // until every file the release lists matches, re-checking every few seconds.
-  async function watchCopy(version) {
-    const r = await self.SCF.folderCheck.check(version).catch(() => ({ ok: null }));
+  let copyMsgShown = false; // only clear the message this check put up, not a "still recording" one
+  async function watchCopy() {
+    const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
     const copying = r.ok === false;
     $('update-now').disabled = copying;
-    $('update-now-msg').hidden = !copying;
+    if (copying || copyMsgShown) $('update-now-msg').hidden = !copying;
+    copyMsgShown = copying;
     if (copying) {
       $('update-now-msg').textContent = self.SCF.folderCheck.describe(r);
       clearTimeout(pollTimer);
@@ -92,18 +94,18 @@
   }
 
   // reloading kills a recording that is still being made or saved, so check first
+  // (folder check first: it can take a couple of seconds, and the idle check must be the last word)
   async function reloadWhenIdle(msgEl) {
+    const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
+    if (r.ok === false) {
+      msgEl.hidden = false;
+      msgEl.textContent = self.SCF.folderCheck.describe(r);
+      return;
+    }
     const s = await send({ type: MSG.GET_STATE });
     if (s && (s.recording || s.saving || s.busy)) {
       msgEl.hidden = false;
       msgEl.textContent = 'A recording or video import is still running or saving. Let it finish, then click again.';
-      return;
-    }
-    const disk = await readDiskVersion();
-    const r = await self.SCF.folderCheck.check(disk).catch(() => ({ ok: null }));
-    if (r.ok === false) {
-      msgEl.hidden = false;
-      msgEl.textContent = self.SCF.folderCheck.describe(r);
       return;
     }
     chrome.runtime.reload(); // loads the folder's files; closes this page (expected)

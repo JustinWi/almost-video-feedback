@@ -491,10 +491,15 @@
     if (upd && upd.kind === 'reload') {
       // a zip still being copied over would load half old, half new files
       $('update-go').disabled = true;
-      const r = await self.SCF.folderCheck.check(upd.version).catch(() => ({ ok: null }));
+      const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
       if (r.ok === false) {
         $('update-text').textContent = self.SCF.folderCheck.describe(r);
         $('update-go').disabled = false;
+        return;
+      }
+      // a recording or import may have started during the check: the idle test is the last word
+      if (state.saving || state.recording || state.busy || importBusy()) {
+        render();
         return;
       }
       chrome.runtime.reload(); // loads the new files from the folder; closes this popup

@@ -57,20 +57,48 @@
     }
   }
 
-  async function check(diskVersion, opts) {
+  async function readDiskVersion() {
+    try {
+      return (await readFolder('manifest.json', 'json')).version || null;
+    } catch (e) {
+      return null; // missing, or caught mid-write
+    }
+  }
+
+  // dotted numeric versions: is a newer than b?
+  function newer(a, b) {
+    const pa = String(a).split('.').map(Number);
+    const pb = String(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d > 0;
+    }
+    return false;
+  }
+
+  // Reads the folder itself (manifest.json and the listing), twice if the first look
+  // isn't conclusive, so a copy that is still landing is caught either way round.
+  async function check(opts) {
     const settleMs = opts && opts.settleMs != null ? opts.settleMs : SETTLE_MS;
-    // a manifest.json caught mid-write can't be read: never reload into that
-    if (!diskVersion) return { ok: false, total: 0, bad: ['manifest.json'] };
-    const usable = (l) => l && l !== 'unreadable' && l.files && l.version === diskVersion;
+    const usable = (l, v) => l && l !== 'unreadable' && l.files && l.version === v;
+    let disk = await readDiskVersion();
     let listing = await readListing();
-    if (!usable(listing)) {
+    if (!disk || !usable(listing, disk)) {
       // Explorer may write manifest.json a moment before release-files.json: give a
       // copy-over time to bring the matching listing before calling it "no listing"
       await sleep(settleMs);
+      disk = await readDiskVersion();
       listing = await readListing();
     }
-    if (listing === 'unreadable') return { ok: false, total: 0, bad: [LISTING] };
-    if (!usable(listing)) return compareListing(null); // git checkout, or a listing left from another version
+    const refuse = (bad) => ({ ok: false, total: 0, bad });
+    // a manifest.json caught mid-write can't be read: never reload into that
+    if (!disk) return refuse(['manifest.json']);
+    if (listing === 'unreadable') return refuse([LISTING]);
+    // the zip holds the listing first and manifest.json last: a listing newer than the
+    // manifest means the copy is still landing
+    if (listing && listing.files && newer(listing.version, disk)) return refuse(['manifest.json']);
+    if (!usable(listing, disk)) return compareListing(null); // git checkout, or a listing left from an older version
+    const diskVersion = disk;
     const hashes = {};
     await Promise.all(
       Object.keys(listing.files).map(async (p) => {
