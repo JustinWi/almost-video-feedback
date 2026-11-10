@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 Thumbs.db
 tmp-shots/
+# written into release zips by scripts/pack.cjs; lands here when a zip is copied over the repo
+release-files.json

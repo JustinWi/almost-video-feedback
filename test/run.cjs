@@ -14,6 +14,7 @@ const speech = require('../src/common/speech.js');
 const transcript = require('../src/common/transcript.js');
 const micTriage = require('../src/background/mic-triage.js');
 const updateCheck = require('../src/common/update-check.js');
+const folderCheck = require('../src/common/folder-check.js');
 const videoSource = require('../src/common/video-source.js');
 
 let passed = 0;
@@ -712,6 +713,21 @@ test('nextStep: nothing once the running version is the latest', () => {
   assert.strictEqual(updateCheck.nextStep('0.10.3', null, null), null);
   // stale "available" for an older version never prompts
   assert.strictEqual(updateCheck.nextStep('0.10.3', { version: '0.10.2' }, '0.10.3'), null);
+});
+
+test('folderCheck: Update now waits for a zip copy-over to finish', () => {
+  const listing = { version: '0.10.7', files: { 'manifest.json': 'aa', 'src/a.js': 'bb', 'src/b.js': 'cc' } };
+  // every file matches -> go
+  assert.deepStrictEqual(folderCheck.compareListing(listing, '0.10.7', { 'manifest.json': 'aa', 'src/a.js': 'bb', 'src/b.js': 'cc' }),
+    { ok: true, total: 3, bad: [] });
+  // mid-copy: one old, one not there yet -> hold
+  const mid = folderCheck.compareListing(listing, '0.10.7', { 'manifest.json': 'aa', 'src/a.js': 'old', 'src/b.js': null });
+  assert.deepStrictEqual(mid, { ok: false, total: 3, bad: ['src/a.js', 'src/b.js'] });
+  assert.ok(/1 of 3 done/.test(folderCheck.describe(mid)));
+  // no listing (git checkout), or one left from another version -> unknown, reload goes ahead
+  assert.strictEqual(folderCheck.compareListing(null, '0.10.7', {}).ok, null);
+  assert.strictEqual(folderCheck.compareListing(listing, '0.10.8', {}).ok, null);
+  assert.strictEqual(folderCheck.compareListing(listing, null, {}).ok, null);
 });
 
 test('decideUpdate stays silent when current version is same or newer', () => {

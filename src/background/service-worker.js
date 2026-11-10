@@ -704,7 +704,7 @@ async function followFocus() {
     session.recFallbackTried = false;
     session.pageFallbackTried = false;
     session.offscreenFailKind = null;
-    store.patchMeta({ recMode: 'iframe', recFallbackTried: false, pageFallbackTried: false }).catch(() => {});
+    store.patchMeta({ recMode: 'iframe', recFallbackTried: false, pageFallbackTried: false, offscreenFailKind: null }).catch(() => {});
   }
   session.tabId = tab.id;
   session.windowId = tab.windowId;
@@ -1083,7 +1083,7 @@ function handleTranscribeError(msg) {
     session.pageFallbackTried = true;
     session.offscreenFailKind = verdict.kind; // the real story if the page turns out sandboxed
     session.recMode = 'page';
-    store.patchMeta({ recMode: 'page', pageFallbackTried: true }).catch(() => {});
+    store.patchMeta({ recMode: 'page', pageFallbackTried: true, offscreenFailKind: verdict.kind }).catch(() => {});
     console.warn('[scf] offscreen recognizer failed (' + verdict.kind + ') — falling back to the page mic');
     broadcast({ type: MSG.RECOGNIZER_STOP }); // stop the offscreen recognizer
     notifyContent(session.tabId, { type: MSG.REC_MODE, recMode: 'page' });
@@ -1140,6 +1140,7 @@ async function recover() {
         recFallbackTried: !!meta.recFallbackTried,
         recFallbackReason: meta.recFallbackReason || null,
         pageFallbackTried: !!meta.pageFallbackTried,
+        offscreenFailKind: meta.offscreenFailKind || null, // survives SW eviction: the page-mic verdict needs it
         capWarning: meta.capWarning || null,
       };
       capture.restore(

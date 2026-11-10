@@ -47,6 +47,21 @@
     $('disk-line').hidden = !diskKnown;
     if (diskKnown) $('disk').textContent = u.onDisk;
     if (!ready) pollTimer = setTimeout(refresh, POLL_MS);
+    else watchCopy(step.version);
+  }
+
+  // Ready by manifest.json, but a zip copy may still be landing: hold the button
+  // until every file the release lists matches, re-checking every few seconds.
+  async function watchCopy(version) {
+    const r = await self.SCF.folderCheck.check(version).catch(() => ({ ok: null }));
+    const copying = r.ok === false;
+    $('update-now').disabled = copying;
+    $('update-now-msg').hidden = !copying;
+    if (copying) {
+      $('update-now-msg').textContent = self.SCF.folderCheck.describe(r);
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(refresh, POLL_MS);
+    }
   }
 
   // Update state with the folder's version re-read. The SW answers UPDATE_STATE from
@@ -58,14 +73,18 @@
     if (u && 'step' in u) return u;
     const g = await send({ type: MSG.GET_STATE });
     const available = (g && g.update && g.update.available) || null;
-    let onDisk = null;
-    try {
-      onDisk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
-    } catch (e) {
-      /* unreadable: fall back to the release prompt */
-    }
+    const onDisk = await readDiskVersion();
     const current = chrome.runtime.getManifest().version;
     return { current, available, onDisk, step: self.SCF.updateCheck.nextStep(current, available, onDisk) };
+  }
+
+  // the folder's manifest.json, which Chrome serves live from disk (null: unreadable)
+  async function readDiskVersion() {
+    try {
+      return (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
+    } catch (e) {
+      return null;
+    }
   }
 
   async function refresh() {
@@ -78,6 +97,13 @@
     if (s && (s.recording || s.saving || s.busy)) {
       msgEl.hidden = false;
       msgEl.textContent = 'A recording or video import is still running or saving. Let it finish, then click again.';
+      return;
+    }
+    const disk = await readDiskVersion();
+    const r = await self.SCF.folderCheck.check(disk).catch(() => ({ ok: null }));
+    if (r.ok === false) {
+      msgEl.hidden = false;
+      msgEl.textContent = self.SCF.folderCheck.describe(r);
       return;
     }
     chrome.runtime.reload(); // loads the folder's files; closes this page (expected)

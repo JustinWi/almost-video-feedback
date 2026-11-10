@@ -6,6 +6,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const zip = require('../src/common/zip.js');
 
 const root = path.join(__dirname, '..');
@@ -32,10 +33,20 @@ for (const d of DIRS) {
   if (fs.existsSync(p)) walk(p, files);
 }
 
-const entries = files.map((full) => ({
-  name: TOP + '/' + path.relative(root, full).split(path.sep).join('/'),
-  data: new Uint8Array(fs.readFileSync(full)),
-}));
+const entries = files
+  .filter((full) => path.basename(full) !== 'release-files.json') // a stale copy from an earlier zip
+  .map((full) => ({
+    name: TOP + '/' + path.relative(root, full).split(path.sep).join('/'),
+    data: new Uint8Array(fs.readFileSync(full)),
+  }));
+
+// release-files.json: every file's sha256, so "Update now" can tell a finished
+// copy-over from one Explorer is still writing (src/common/folder-check.js)
+const listing = { version: JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8')).version, files: {} };
+for (const e of entries) {
+  listing.files[e.name.slice(TOP.length + 1)] = crypto.createHash('sha256').update(e.data).digest('hex');
+}
+entries.push({ name: TOP + '/release-files.json', data: new Uint8Array(Buffer.from(JSON.stringify(listing, null, 1) + '\n')) });
 
 const outDir = path.join(root, 'dist');
 fs.mkdirSync(outDir, { recursive: true });

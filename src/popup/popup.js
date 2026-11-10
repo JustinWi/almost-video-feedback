@@ -486,9 +486,17 @@
     if (!id) return;
     armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
-  $('update-go').addEventListener('click', () => {
+  $('update-go').addEventListener('click', async () => {
     const upd = state.update && state.update.step;
     if (upd && upd.kind === 'reload') {
+      // a zip still being copied over would load half old, half new files
+      $('update-go').disabled = true;
+      const r = await self.SCF.folderCheck.check(upd.version).catch(() => ({ ok: null }));
+      if (r.ok === false) {
+        $('update-text').textContent = self.SCF.folderCheck.describe(r);
+        $('update-go').disabled = false;
+        return;
+      }
       chrome.runtime.reload(); // loads the new files from the folder; closes this popup
       return;
     }
