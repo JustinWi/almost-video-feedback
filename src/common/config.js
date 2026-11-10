@@ -70,6 +70,7 @@
     // recognizers aren't live by these deadlines, the SW moves on or says why
     offscreenMicStartMs: 15000, // offscreen doc: mic grab (3s) + two audio-start attempts (4s each) + message hops fit inside
     pageMicStartMs: 20000, // page mic: Web Speech start-up; held while Chrome's site-mic prompt is unanswered
+    pageMicPromptMaxMs: 120000, // ...but not forever: a prompt Chrome shows quietly (or in a background tab) may never be answered
     heartbeatSeconds: 30,
     scrollIdleMs: 500,
     scrollMinDeltaPx: 200,

@@ -34,6 +34,7 @@
     recognizerSilentMs: 3000,
     offscreenMicStartMs: 15000,
     pageMicStartMs: 20000,
+    pageMicPromptMaxMs: 120000,
     triggers: Object.assign({}, DEFAULT_TRIGGERS),
   };
   const annotate = self.SCF_ANNOTATE || null;
@@ -882,6 +883,12 @@
           status.onchange = () => {
             if (!stale()) armRecWatchdog('page');
           };
+          // a prompt nobody answers (Chrome's quiet chip, a background tab) still ends
+          recWatchdog = setTimeout(() => {
+            if (stale()) return;
+            stopRecognizer();
+            send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
+          }, cfg.pageMicPromptMaxMs);
           return;
         }
         stopRecognizer();
