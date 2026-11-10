@@ -49,8 +49,27 @@
     if (!ready) pollTimer = setTimeout(refresh, POLL_MS);
   }
 
+  // Update state with the folder's version re-read. The SW answers UPDATE_STATE from
+  // v0.10.4 on; this page is served live from the folder, so it can be newer than
+  // the SW still running (exactly the "files updated, not reloaded" case). Then work
+  // the step out here from GET_STATE + the folder's manifest.json.
+  async function freshUpdateState() {
+    const u = await send({ type: MSG.UPDATE_STATE });
+    if (u && 'step' in u) return u;
+    const g = await send({ type: MSG.GET_STATE });
+    const available = (g && g.update && g.update.available) || null;
+    let onDisk = null;
+    try {
+      onDisk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
+    } catch (e) {
+      /* unreadable: fall back to the release prompt */
+    }
+    const current = chrome.runtime.getManifest().version;
+    return { current, available, onDisk, step: self.SCF.updateCheck.nextStep(current, available, onDisk) };
+  }
+
   async function refresh() {
-    render(await send({ type: MSG.UPDATE_STATE }));
+    render(await freshUpdateState());
   }
 
   // reloading kills a recording that is still being made or saved, so check first
@@ -84,7 +103,7 @@
   $('recheck').addEventListener('click', async () => {
     $('recheck-status').textContent = 'checking…';
     await send({ type: MSG.UPDATE_CHECK_NOW });
-    const u = await send({ type: MSG.UPDATE_STATE });
+    const u = await freshUpdateState();
     render(u);
     if (!(u && u.step)) $('recheck-status').textContent = 'still the latest ✓';
   });

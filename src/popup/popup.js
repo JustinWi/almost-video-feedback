@@ -362,6 +362,25 @@
     if (!state.recording && !state.saving) $('recent').hidden = recentCount === 0;
   }
 
+  // Update state with the folder's version re-read. The SW answers UPDATE_STATE from
+  // v0.10.4 on; this page is served live from the folder, so it can be newer than
+  // the SW still running (exactly the "files updated, not reloaded" case). Then work
+  // the step out here from GET_STATE + the folder's manifest.json.
+  async function freshUpdateState() {
+    const u = await send({ type: MSG.UPDATE_STATE });
+    if (u && 'step' in u) return u;
+    const g = await send({ type: MSG.GET_STATE });
+    const available = (g && g.update && g.update.available) || null;
+    let onDisk = null;
+    try {
+      onDisk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
+    } catch (e) {
+      /* unreadable: fall back to the release prompt */
+    }
+    const current = chrome.runtime.getManifest().version;
+    return { current, available, onDisk, step: self.SCF.updateCheck.nextStep(current, available, onDisk) };
+  }
+
   async function load() {
     const s = await send({ type: MSG.GET_STATE });
     if (s) {
@@ -373,7 +392,7 @@
       state.update = s.update;
     }
     // re-read the extension folder's version (a git pull / copy-over shows up here)
-    send({ type: MSG.UPDATE_STATE }).then((u) => {
+    freshUpdateState().then((u) => {
       if (u) {
         state.update = u;
         render();
