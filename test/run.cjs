@@ -740,6 +740,16 @@ test('migrate raises a saved old-default 300 cap to 1000, once', () => {
   assert.strictEqual(again.settings.maxScreenshots, 300);
 });
 
+test('migrate raises a saved 12s offscreen mic deadline to 15s, once', () => {
+  const m = config.migrate({ offscreenMicStartMs: 12000, settingsRev: 2, maxScreenshots: 300 });
+  assert.strictEqual(m.changed, true);
+  assert.strictEqual(m.settings.offscreenMicStartMs, 15000);
+  assert.strictEqual(m.settings.maxScreenshots, 300); // rev-2 step already ran: a saved 300 is a choice
+  assert.strictEqual(config.DEFAULTS.offscreenMicStartMs, 15000);
+  const again = config.migrate({ offscreenMicStartMs: 12000, settingsRev: config.SETTINGS_REV });
+  assert.strictEqual(again.changed, false);
+});
+
 test('migrate leaves a user-chosen non-300 cap alone', () => {
   assert.strictEqual(config.migrate({ maxScreenshots: 500 }).settings.maxScreenshots, 500);
   assert.strictEqual(config.migrate({ maxScreenshots: 2000 }).settings.maxScreenshots, 2000);

@@ -75,9 +75,9 @@
   // reloading kills a recording that is still being made or saved, so check first
   async function reloadWhenIdle(msgEl) {
     const s = await send({ type: MSG.GET_STATE });
-    if (s && (s.recording || s.saving)) {
+    if (s && (s.recording || s.saving || s.busy)) {
       msgEl.hidden = false;
-      msgEl.textContent = 'A recording is still running or saving. Stop it first, then click again.';
+      msgEl.textContent = 'A recording or video import is still running or saving. Let it finish, then click again.';
       return;
     }
     chrome.runtime.reload(); // loads the folder's files; closes this page (expected)

@@ -122,6 +122,8 @@ function broadcast(msg) {
 // makes it report MIC_LISTENING again, which a re-armed overlay is waiting for.
 function armOffscreenRecognizer() {
   ensureOffscreen().then(() => {
+    // creating the document takes a moment: a pause or stop in that gap must win
+    if (!(session && session.active) || session.paused) return;
     broadcast({
       type: MSG.OFFSCREEN_RECOGNIZE,
       lang: (session && session.settings && session.settings.language) || 'en-US',
@@ -163,6 +165,8 @@ function statePayload() {
     recording: !!(session && session.active),
     paused: !!(session && session.paused),
     saving: stopping,
+    // anything a chrome.runtime.reload() would cut short (the update buttons check it)
+    busy: !!(stopping || starting || importing || (session && session.active)),
     startedAt: session ? session.startedAt : null,
     screenshots: capture.getSeq(),
     tabId: session ? session.tabId : null,
@@ -1094,7 +1098,10 @@ function handleTranscribeError(msg) {
   // user can act on when it was the extension's permission.
   let kind = verdict.kind;
   if (msg.src === 'page' && kind === 'sandboxed') {
-    if (session.offscreenFailKind === 'permission') kind = 'permission';
+    // no grant / no mic is the real story: "other pages work normally" would be false
+    if (session.offscreenFailKind === 'permission' || session.offscreenFailKind === 'no-audio') {
+      kind = session.offscreenFailKind;
+    }
   } else if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio' && kind !== 'timeout') {
     kind = 'site-mic';
   } else if (msg.src === 'offscreen' && kind !== 'permission' && session.recFallbackReason === 'page-blocked') {

@@ -20,7 +20,7 @@
   const MSG = self.SCF.MSG;
   const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
   // Both audio-start attempts (track, then plain) and the mic grab must fit inside
-  // the overlay's offscreenMicStartMs (12 s), so we report before it gives up on us.
+  // the overlay's offscreenMicStartMs (15 s), so we report before it gives up on us.
   const AUDIO_START_TIMEOUT_MS = 4000;
   const MIC_GRAB_TIMEOUT_MS = 3000;
 

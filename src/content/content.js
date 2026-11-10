@@ -32,7 +32,7 @@
     annotate: true,
     annotateColor: '#ff2d95',
     recognizerSilentMs: 3000,
-    offscreenMicStartMs: 12000,
+    offscreenMicStartMs: 15000,
     pageMicStartMs: 20000,
     triggers: Object.assign({}, DEFAULT_TRIGGERS),
   };
@@ -822,7 +822,8 @@
   // Served with a CSP sandbox (no allow-same-origin): the page's origin is opaque.
   function sandboxedPage() {
     try {
-      return self.origin === 'null';
+      // file:// pages are opaque too, but they can still ask for their own mic
+      return self.origin === 'null' && location.protocol !== 'file:';
     } catch (e) {
       return false;
     }

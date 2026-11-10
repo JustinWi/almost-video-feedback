@@ -155,8 +155,8 @@
         : 'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
       $('update-go').textContent = ready ? '⟳ Update now' : 'How to update';
       // reloading mid-save would lose the recording being written
-      $('update-go').disabled = ready && !!(state.saving || state.recording);
-      $('update-go').title = $('update-go').disabled ? 'Wait for the recording to finish saving' : '';
+      $('update-go').disabled = ready && !!(state.saving || state.recording || state.busy || importBusy());
+      $('update-go').title = $('update-go').disabled ? 'Wait for the recording or import to finish' : '';
     }
 
     if (state.recording) {
@@ -381,15 +381,18 @@
     return { current, available, onDisk, step: self.SCF.updateCheck.nextStep(current, available, onDisk) };
   }
 
+  const importBusy = () => !$('import-progress').hidden; // an import started from this popup
+
   async function load() {
     const s = await send({ type: MSG.GET_STATE });
     if (s) {
       state.recording = s.recording;
       state.saving = s.saving;
+      state.busy = !!s.busy;
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult;
-      state.update = s.update;
+      if (s.update && 'step' in s.update) state.update = s.update;
     }
     // re-read the extension folder's version (a git pull / copy-over shows up here)
     freshUpdateState().then((u) => {
@@ -507,10 +510,12 @@
       const s = msg.state || {};
       state.recording = s.recording;
       state.saving = !!s.saving;
+      state.busy = !!s.busy;
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult || state.lastResult;
-      if (s.update) state.update = s.update;
+      // a service worker older than these files sends no `step`: keep what freshUpdateState() worked out
+      if (s.update && 'step' in s.update) state.update = s.update;
       if (msg.error) lastError = msg.error;
       render();
     } else if (msg.type === MSG.IMPORT_PROGRESS) {

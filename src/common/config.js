@@ -9,7 +9,7 @@
   if (root.SCF_CONFIG) return;
 
   // Bumped when a migration in migrate() below must run once on saved settings.
-  const SETTINGS_REV = 2;
+  const SETTINGS_REV = 3;
 
   const DEFAULTS = {
     settingsRev: SETTINGS_REV,
@@ -68,7 +68,7 @@
     recognizerSilentMs: 3000, // no word from the recognizer iframe by then = treat it as dead (sandboxed page)
     // the overlay never sits on "Starting microphone…" forever: if the fallback
     // recognizers aren't live by these deadlines, the SW moves on or says why
-    offscreenMicStartMs: 12000, // offscreen doc: mic grab + two audio-start attempts fit inside
+    offscreenMicStartMs: 15000, // offscreen doc: mic grab (3s) + two audio-start attempts (4s each) + message hops fit inside
     pageMicStartMs: 20000, // page mic: room for the user to answer Chrome's prompt
     heartbeatSeconds: 30,
     scrollIdleMs: 500,
@@ -126,6 +126,9 @@
     // rev 2 (v0.10.0): the screenshot cap's default went 300 -> 1000. A saved 300 is
     // almost always the old default riding along, not a choice — raise it once.
     if (rev < 2 && s.maxScreenshots === 300) s.maxScreenshots = 1000;
+    // rev 3 (v0.10.6): the offscreen mic deadline 12s -> 15s (12s could cut off a mic that
+    // was about to start on its retry). It isn't in the options page, so 12000 is never a choice.
+    if (rev < 3 && s.offscreenMicStartMs === 12000) s.offscreenMicStartMs = 15000;
     s.settingsRev = SETTINGS_REV;
     return { settings: s, changed: true };
   }
