@@ -105,16 +105,25 @@
   }
 
   function notify(title, message) {
+    // iconUrl MUST be absolute. A relative path resolves against the service
+    // worker's own folder (src/background/), so 'icons/icon128.png' became
+    // src/background/icons/icon128.png, which doesn't exist, and Chrome rejected
+    // the notification with "Unable to download all specified images."
+    // create() returns a promise in MV3, so a rejection skips the try/catch:
+    // handle it with .catch() too.
+    const quiet = (e) => console.warn('[scf] update notification failed:', e && e.message);
     try {
-      chrome.notifications.create(NOTIF_ID, {
+      const p = chrome.notifications.create(NOTIF_ID, {
         type: 'basic',
-        iconUrl: 'icons/icon128.png',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
         title,
         message,
         priority: 1,
       });
+      if (p && typeof p.catch === 'function') p.catch(quiet);
     } catch (e) {
       /* notifications unavailable — badge + popup banner still prompt */
+      quiet(e);
     }
   }
 

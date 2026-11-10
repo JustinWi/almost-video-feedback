@@ -64,6 +64,33 @@ console.log('code-referenced pages:');
   else bad('missing: ' + p);
 });
 
+// chrome.notifications iconUrl must be absolute (chrome.runtime.getURL(...)).
+// A bare relative string resolves against the calling script's folder — from the
+// service worker that's src/background/, where no icons live — and Chrome fails
+// with "Unable to download all specified images."
+console.log('notification icons (absolute iconUrl):');
+{
+  const iconWalk = (dir, acc) => {
+    for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) iconWalk(rel, acc);
+      else if (rel.endsWith('.js')) acc.push(rel);
+    }
+    return acc;
+  };
+  let found = 0;
+  for (const rel of iconWalk('src', [])) {
+    const src = fs.readFileSync(path.join(root, rel), 'utf8');
+    const re = /iconUrl\s*:\s*(['"`])(?!chrome-extension:|https?:|data:)/g;
+    let m;
+    while ((m = re.exec(src))) {
+      found++;
+      bad(rel + ':' + (src.slice(0, m.index).split('\n').length) + ' iconUrl is a relative string; wrap it in chrome.runtime.getURL()');
+    }
+  }
+  if (!found) ok('no relative iconUrl strings');
+}
+
 // syntax-check every JS file
 console.log('syntax (node --check):');
 function walk(dir, acc) {
