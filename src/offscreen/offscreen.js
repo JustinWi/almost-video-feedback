@@ -54,27 +54,41 @@
   let recognition = null;
   let recStream = null;
   let wantRec = false;
-  let running = false;
   let audioLive = false;
   let triedPlain = false; // second chance: plain start() while the gUM stream holds the mic open
   let useTrack = true;
   let watchdog = null;
   let restartTimer = null;
   let lang = 'en-US';
+  let startGen = 0; // bumps per startRecognition, so a superseded mic grab lets go of its stream
+  // Instances stopped by a pause that haven't ended yet -> the mic stream each still holds. A
+  // resume can land before the old instance's end event (stop() -> end takes ~70 ms+, the new
+  // mic grab ~20 ms), so the old instance is detached rather than reused: it may still post its
+  // final segment, and releases its own stream when it ends.
+  const draining = new Map();
 
   function postError(error, permState) {
     post({ type: MSG.TRANSCRIBE_ERROR, error, src: 'offscreen', permState: permState || null });
   }
 
-  function releaseStream() {
-    if (recStream) {
-      try {
-        recStream.getTracks().forEach((t) => t.stop());
-      } catch (e) {
-        /* ignore */
-      }
-      recStream = null;
+  function stopTracks(stream) {
+    if (!stream) return;
+    try {
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      /* ignore */
     }
+  }
+
+  function releaseStream() {
+    stopTracks(recStream);
+    recStream = null;
+  }
+
+  function drainDone(r) {
+    if (!draining.has(r)) return;
+    stopTracks(draining.get(r));
+    draining.delete(r);
   }
 
   function armWatchdog() {
@@ -108,10 +122,6 @@
     // Every handler ignores events from a superseded instance: the watchdog
     // abort()s and replaces the recognition object, and the old one's onend
     // would otherwise schedule a competing restart.
-    r.onstart = () => {
-      if (recognition !== r) return;
-      running = true;
-    };
     r.onaudiostart = () => {
       if (recognition !== r) return;
       audioLive = true;
@@ -119,7 +129,7 @@
       post({ type: MSG.MIC_LISTENING, src: 'offscreen' });
     };
     r.onresult = (event) => {
-      if (recognition !== r) return;
+      if (recognition !== r && !draining.has(r)) return; // a stopping instance still flushes its final segment
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const res = event.results[i];
@@ -146,8 +156,11 @@
       }
     };
     r.onend = () => {
+      if (draining.has(r)) {
+        drainDone(r);
+        return;
+      }
       if (recognition !== r) return;
-      running = false;
       if (!wantRec) {
         releaseStream();
         return;
@@ -198,6 +211,8 @@
     wantRec = true;
     triedPlain = false;
     useTrack = true;
+    const gen = ++startGen;
+    let stream = null;
     try {
       // An offscreen doc can't show a permission prompt; a grab that would need one
       // can sit unsettled. Don't wait on it forever.
@@ -210,11 +225,12 @@
         }, MIC_GRAB_TIMEOUT_MS);
       });
       try {
-        recStream = await Promise.race([grab, timeout]);
+        stream = await Promise.race([grab, timeout]);
       } finally {
         clearTimeout(timer);
       }
     } catch (e) {
+      if (gen !== startGen) return; // a newer start owns the state now
       wantRec = false;
       if (e && e.name === 'TimeoutError') {
         postError('start-timeout');
@@ -230,11 +246,12 @@
       postError(e && e.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture', permState || 'denied');
       return;
     }
-    if (!wantRec) {
-      // stopped while getUserMedia was pending
-      releaseStream();
+    if (!wantRec || gen !== startGen) {
+      // stopped (or stopped and restarted) while getUserMedia was pending
+      stopTracks(stream);
       return;
     }
+    recStream = stream;
     startSR();
   }
 
@@ -242,18 +259,30 @@
     wantRec = false;
     clearTimeout(watchdog);
     clearTimeout(restartTimer);
-    if (recognition) {
-      try {
-        recognition.stop(); // graceful: lets the final segment flush; onend releases the stream
-      } catch (e) {
-        releaseStream();
-      }
-    } else {
-      releaseStream();
+    const r = recognition;
+    const stream = recStream;
+    recognition = null; // a resume builds a fresh instance on a fresh stream (see `draining`)
+    recStream = null;
+    if (!r) {
+      stopTracks(stream);
+      return;
+    }
+    draining.set(r, stream);
+    try {
+      r.stop(); // graceful: lets the final segment flush; onend releases its stream
+    } catch (e) {
+      drainDone(r);
+      return;
     }
     // safety: if onend never fires, don't hold the mic open
     setTimeout(() => {
-      if (!wantRec && !running) releaseStream();
+      if (!draining.has(r)) return;
+      try {
+        r.abort();
+      } catch (e) {
+        /* ignore */
+      }
+      drainDone(r);
     }, 2000);
   }
 
