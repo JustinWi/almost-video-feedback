@@ -146,11 +146,17 @@
 
     // update banner — the popup opens after every save, so even click-to-record
     // users (who never see the idle popup) get the nudge here
-    const upd = state.update && state.update.available;
+    const upd = state.update && state.update.step;
     $('update-banner').hidden = !upd;
     if (upd) {
-      $('update-text').textContent =
-        'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
+      const ready = upd.kind === 'reload';
+      $('update-text').textContent = ready
+        ? 'v' + upd.version + ' is ready in your extension folder'
+        : 'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
+      $('update-go').textContent = ready ? '⟳ Update now' : 'How to update';
+      // reloading mid-save would lose the recording being written
+      $('update-go').disabled = ready && !!(state.saving || state.recording);
+      $('update-go').title = $('update-go').disabled ? 'Wait for the recording to finish saving' : '';
     }
 
     if (state.recording) {
@@ -364,7 +370,15 @@
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult;
+      state.update = s.update;
     }
+    // re-read the extension folder's version (a git pull / copy-over shows up here)
+    send({ type: MSG.UPDATE_STATE }).then((u) => {
+      if (u) {
+        state.update = u;
+        render();
+      }
+    });
     // Clicking the toolbar icon while recording stops the recording automatically
     // (the menu then shows "Saving…" -> the saved result + recent list).
     if (state.recording && !state.saving) {
@@ -451,6 +465,11 @@
     armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
   $('update-go').addEventListener('click', () => {
+    const upd = state.update && state.update.step;
+    if (upd && upd.kind === 'reload') {
+      chrome.runtime.reload(); // loads the new files from the folder; closes this popup
+      return;
+    }
     chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
     window.close();
   });
@@ -472,6 +491,7 @@
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult || state.lastResult;
+      if (s.update) state.update = s.update;
       if (msg.error) lastError = msg.error;
       render();
     } else if (msg.type === MSG.IMPORT_PROGRESS) {

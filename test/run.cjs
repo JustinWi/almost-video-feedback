@@ -691,6 +691,29 @@ test('Web Store installs skip the GitHub update check; unpacked/sideloaded ones 
   assert.strictEqual(updateCheck.needsGithubCheck(undefined), true);
 });
 
+test('nextStep: one-click reload when the folder already has the new version', () => {
+  const avail = { version: '0.10.3' };
+  // Justin's case: repo folder pulled to 0.10.3, Chrome still running 0.10.2
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.3'), { kind: 'reload', version: '0.10.3' });
+  // folder ahead of the release we know about (or no check yet): reload still finishes it
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.4'), { kind: 'reload', version: '0.10.4' });
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', null, '0.10.3'), { kind: 'reload', version: '0.10.3' });
+  // folder still old -> the files have to be replaced first
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.2'), { kind: 'replace', version: '0.10.3' });
+  // folder half-way (newer than running, older than the release) -> still replace
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.1', avail, '0.10.2'), { kind: 'replace', version: '0.10.3' });
+  // can't read the folder -> fall back to the release prompt
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, null), { kind: 'replace', version: '0.10.3' });
+});
+
+test('nextStep: nothing once the running version is the latest', () => {
+  assert.strictEqual(updateCheck.nextStep('0.10.3', { version: '0.10.3' }, '0.10.3'), null);
+  assert.strictEqual(updateCheck.nextStep('0.10.3', null, '0.10.3'), null);
+  assert.strictEqual(updateCheck.nextStep('0.10.3', null, null), null);
+  // stale "available" for an older version never prompts
+  assert.strictEqual(updateCheck.nextStep('0.10.3', { version: '0.10.2' }, '0.10.3'), null);
+});
+
 test('decideUpdate stays silent when current version is same or newer', () => {
   const info = updateCheck.parseReleaseInfo({ tag_name: 'v0.9.0', assets: [] }, 'f');
   assert.strictEqual(updateCheck.decideUpdate(info, '0.9.0'), null);

@@ -39,6 +39,7 @@
     FORCE_SHOT: 'force_shot',
     TOGGLE_PAUSE: 'toggle_pause',
     DELETE_RECORDING: 'delete_recording',
+    UPDATE_STATE: 'update_state', // popup/update page -> SW: update state with the folder's version re-read
     UPDATE_CHECK_NOW: 'update_check_now', // options/update page -> SW: check GitHub for a newer release now
 
     // service worker <-> offscreen

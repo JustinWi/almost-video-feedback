@@ -75,11 +75,15 @@ function setBadge(mode) {
   } else {
     // idle — this is the only state the update nudge may occupy; it must never
     // paint over the recording/paused/saving badges above
-    const upd = self.SCF.updater && self.SCF.updater.availableNow();
+    const upd = self.SCF.updater && self.SCF.updater.stepNow();
     if (upd) {
       chrome.action.setBadgeText({ text: '↑' });
       chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
-      chrome.action.setTitle({ title: 'Update available — v' + upd.version + ' (open the menu → Update)' });
+      chrome.action.setTitle({
+        title: upd.kind === 'reload'
+          ? 'v' + upd.version + ' is ready — open the menu → Update now'
+          : 'Update available — v' + upd.version + ' (open the menu → How to update)',
+      });
     } else {
       chrome.action.setBadgeText({ text: '' });
       chrome.action.setTitle({ title: 'Almost Video Feedback' });
@@ -813,6 +817,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case MSG.TOGGLE_PAUSE:
       sendResponse(togglePause());
       return false;
+
+    case MSG.UPDATE_STATE:
+      (async () => {
+        sendResponse(await self.SCF.updater.refreshState());
+      })();
+      return true;
 
     case MSG.UPDATE_CHECK_NOW:
       (async () => {

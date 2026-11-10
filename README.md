@@ -117,7 +117,8 @@ GitHub release (version tag only — no user data; disable in Settings → Updat
 you'll see a green **↑** on the toolbar icon, a notification, and an **Update** button in the menu.
 Clicking any of them opens a guided page: download the zip, copy the contents of its
 `almost-video-feedback` folder over your extension folder (the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
-clone instead? `git pull`, then the same Reload button.
+clone instead? `git pull`: the menu's button turns into **⟳ Update now**, and that one click finishes it.
+Once you're on the latest version the ↑, the menu button and the notice clear themselves.
 
 ## Microphone
 

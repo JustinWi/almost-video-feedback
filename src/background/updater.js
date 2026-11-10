@@ -6,8 +6,10 @@
  * fetches GitHub's "latest release" for the repo and, when it's newer than the
  * running version, prompts: toolbar badge (only while idle — never over the
  * recording/paused badge), one Chrome notification per new version (not a daily
- * nag), and a banner in the popup. All prompts lead to src/update/update.html,
- * which walks through the update and ends in chrome.runtime.reload().
+ * nag), and a banner in the popup. When the extension folder already holds the
+ * new version (git pull / files copied), the prompt is a one-click "Update now"
+ * (chrome.runtime.reload()); otherwise src/update/update.html walks through
+ * replacing the files first.
  *
  * PRIVACY: the check is a single unauthenticated GET of
  * https://api.github.com/repos/.../releases/latest. It carries no user data —
@@ -32,6 +34,7 @@
   const NOTIF_ID = 'scf-update';
 
   let available = null; // in-memory mirror so setBadge() can read it synchronously
+  let onDisk = null; // manifest.json version in the extension folder right now (see refreshDisk)
   let onChange = () => {};
 
   const current = () => chrome.runtime.getManifest().version;
@@ -60,6 +63,24 @@
     return githubCheck;
   }
 
+  // Chrome serves an unpacked extension's files live from its folder, so this reads the
+  // version a `git pull` / copy-over put there, even before the extension is reloaded.
+  async function refreshDisk() {
+    try {
+      const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+      const v = (await res.json()).version;
+      onDisk = typeof v === 'string' ? v : null;
+    } catch (e) {
+      onDisk = null;
+    }
+    return onDisk;
+  }
+
+  // the prompt to show: {kind:'reload'|'replace', version} or null (see updateCheck.nextStep)
+  function step() {
+    return LIB.nextStep(current(), available, onDisk);
+  }
+
   async function init(opts) {
     if (opts && opts.onChange) onChange = opts.onChange;
     try {
@@ -69,6 +90,7 @@
         onChange();
         return; // no alarm, no prompts: Chrome updates store installs itself
       }
+      await refreshDisk();
       const st = await getStore();
       if (st.available && !LIB.isNewer(st.available.version, current())) {
         // we're now running the version we prompted about — clear the prompt
@@ -103,6 +125,7 @@
       const res = await fetch(url, { headers: { accept: 'application/vnd.github+json' }, cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const info = LIB.parseReleaseInfo(await res.json(), FALLBACK_ZIP);
+      await refreshDisk();
       await setAvailable(LIB.decideUpdate(info, current()));
     } catch (e) {
       // offline / rate-limited / bad fixture: stay quiet, try again next cycle
@@ -118,9 +141,12 @@
     onChange();
     if (upd && st.lastNotifiedVersion !== upd.version) {
       await patchStore({ lastNotifiedVersion: upd.version });
+      const s = step();
       notify(
         'Almost Video Feedback v' + upd.version + ' is out',
-        'Click to update — it takes about a minute. (You have v' + current() + '.)'
+        s && s.kind === 'reload'
+          ? 'The new files are already in your extension folder. Click, then "Update now". (You have v' + current() + '.)'
+          : 'Click to update — it takes about a minute. (You have v' + current() + '.)'
       );
     }
   }
@@ -143,10 +169,14 @@
     chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
   }
 
-  chrome.notifications.onClicked.addListener((id) => {
+  chrome.notifications.onClicked.addListener(async (id) => {
     if (id !== NOTIF_ID) return;
     chrome.notifications.clear(id);
-    if (available) openUpdatePage();
+    // a click can wake the SW before init() has read storage, so don't trust `available`
+    // here: re-read it, or the click silently does nothing
+    if (!available) available = (await getStore()).available || null;
+    await refreshDisk();
+    if (step()) openUpdatePage();
   });
 
   chrome.alarms.onAlarm.addListener((alarm) => {
@@ -154,7 +184,16 @@
   });
 
   function state() {
-    return { current: current(), available };
+    return { current: current(), available, onDisk, step: step() };
+  }
+
+  // fresh state for the popup / update page (re-reads the folder; repaints the badge if it changed)
+  async function refreshState() {
+    const before = JSON.stringify(step());
+    if (!available) available = (await getStore()).available || null;
+    await refreshDisk();
+    if (JSON.stringify(step()) !== before) onChange();
+    return state();
   }
 
   // dev helpers for the service-worker console (see header)
@@ -169,6 +208,7 @@
   async function clear() {
     await patchStore({ available: null, lastNotifiedVersion: null });
     available = null;
+    try { chrome.notifications.clear(NOTIF_ID); } catch (e) { /* none */ }
     onChange();
     return state();
   }
@@ -177,9 +217,10 @@
     init,
     check,
     state,
+    refreshState,
     simulate,
     clear,
     openUpdatePage,
-    availableNow: () => available,
+    stepNow: step,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : self);
