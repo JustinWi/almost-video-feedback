@@ -14,6 +14,7 @@
     PAGE_INFO: 'page_info',
     ROUTE_CHANGED: 'route_changed',
     PREPARE_CAPTURE_ACK: 'prepare_capture_ack',
+    SCREENSHOT_CAP_DISMISS: 'screenshot_cap_dismiss', // user closed the "limit reached" warning
 
     // service worker -> content
     SESSION_STARTED: 'session_started',
@@ -25,6 +26,7 @@
     CAPTURE_DONE: 'capture_done',
     TRANSCRIPT_UPDATE: 'transcript_update',
     SCREENSHOT_TOAST: 'screenshot_toast',
+    SCREENSHOT_CAP: 'screenshot_cap', // the per-recording screenshot limit was just reached -> big warning
     STATUS: 'status',
 
     // popup/options <-> service worker
@@ -37,6 +39,7 @@
     FORCE_SHOT: 'force_shot',
     TOGGLE_PAUSE: 'toggle_pause',
     DELETE_RECORDING: 'delete_recording',
+    UPDATE_STATE: 'update_state', // popup/update page -> SW: update state with the folder's version re-read
     UPDATE_CHECK_NOW: 'update_check_now', // options/update page -> SW: check GitHub for a newer release now
 
     // service worker <-> offscreen

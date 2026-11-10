@@ -60,6 +60,7 @@ header { display: flex; align-items: center; justify-content: space-between; }
   border: 0; border-radius: 8px; padding: 6px 12px; background: #16a34a; color: #fff;
 }
 .banner.update button:hover { background: #15803d; }
+.banner.update button:disabled { opacity: .5; cursor: default; }
 
 .live { background: #0b1220; border: 1px solid #1e293b; border-radius: 10px; padding: 11px; }
 .live-row { display: flex; align-items: center; gap: 8px; font-weight: 600; }

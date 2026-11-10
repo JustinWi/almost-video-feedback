@@ -66,7 +66,32 @@
     return { version: releaseInfo.version, zipUrl: releaseInfo.zipUrl, pageUrl: releaseInfo.pageUrl };
   }
 
-  const api = { parseVersion, isNewer, checkDue, parseReleaseInfo, decideUpdate };
+  // chrome.management.getSelf().installType: 'normal' = installed from the Chrome
+  // Web Store, which updates the extension by itself, so our zip-and-copy prompt
+  // must stay silent there. Unpacked ('development'), sideloaded or admin
+  // installs never auto-update -> they need the GitHub check.
+  function needsGithubCheck(installType) {
+    return installType !== 'normal';
+  }
+
+  // What the update prompt should offer. `diskVersion` is manifest.json's version as it
+  // is on disk right now: Chrome serves an unpacked extension's files live, so after a
+  // `git pull` or a copy-over the folder is newer than the code still running.
+  //   { kind: 'reload', version }  -> the new files are already in the folder: one
+  //                                   click on "Update now" (chrome.runtime.reload) finishes
+  //   { kind: 'replace', version } -> the folder still has the old files: download/pull first
+  //   null                         -> nothing to do (running the latest we know of)
+  function nextStep(currentVersion, available, diskVersion) {
+    const want = available && available.version;
+    const diskAhead = isNewer(diskVersion, currentVersion);
+    if (diskAhead && !(want && isNewer(want, diskVersion))) {
+      return { kind: 'reload', version: parseVersion(diskVersion).join('.') };
+    }
+    if (want && isNewer(want, currentVersion)) return { kind: 'replace', version: want };
+    return null;
+  }
+
+  const api = { parseVersion, isNewer, checkDue, parseReleaseInfo, decideUpdate, needsGithubCheck, nextStep };
 
   root.SCF = root.SCF || {};
   root.SCF.updateCheck = root.SCF.updateCheck || api;

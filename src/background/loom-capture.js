@@ -92,7 +92,7 @@
     const url = (await chrome.tabs.get(tabId).catch(() => null) || {}).url || null;
 
     const floorMs = (settings.loomFrameFloorSeconds || 15) * 1000;
-    const maxFrames = settings.maxScreenshots || 300;
+    const maxFrames = settings.maxScreenshots || 1000;
     const targets = loomTimeline.buildTargets(segments.map((s) => s.ms), { floorMs, maxFrames });
 
     const mime = settings.captureFormat === 'jpeg' ? 'image/jpeg' : 'image/png';

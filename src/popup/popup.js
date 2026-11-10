@@ -146,11 +146,17 @@
 
     // update banner — the popup opens after every save, so even click-to-record
     // users (who never see the idle popup) get the nudge here
-    const upd = state.update && state.update.available;
+    const upd = state.update && state.update.step;
     $('update-banner').hidden = !upd;
     if (upd) {
-      $('update-text').textContent =
-        'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
+      const ready = upd.kind === 'reload';
+      $('update-text').textContent = ready
+        ? 'v' + upd.version + ' is ready in your extension folder'
+        : 'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
+      $('update-go').textContent = ready ? '⟳ Update now' : 'How to update';
+      // reloading mid-save would lose the recording being written
+      $('update-go').disabled = ready && !!(state.saving || state.recording || state.busy || importBusy());
+      $('update-go').title = $('update-go').disabled ? 'Wait for the recording or import to finish' : '';
     }
 
     if (state.recording) {
@@ -356,15 +362,45 @@
     if (!state.recording && !state.saving) $('recent').hidden = recentCount === 0;
   }
 
+  // Update state with the folder's version re-read. The SW answers UPDATE_STATE from
+  // v0.10.4 on; this page is served live from the folder, so it can be newer than
+  // the SW still running (exactly the "files updated, not reloaded" case). Then work
+  // the step out here from GET_STATE + the folder's manifest.json.
+  async function freshUpdateState() {
+    const u = await send({ type: MSG.UPDATE_STATE });
+    if (u && 'step' in u) return u;
+    const g = await send({ type: MSG.GET_STATE });
+    const available = (g && g.update && g.update.available) || null;
+    let onDisk = null;
+    try {
+      onDisk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
+    } catch (e) {
+      /* unreadable: fall back to the release prompt */
+    }
+    const current = chrome.runtime.getManifest().version;
+    return { current, available, onDisk, step: self.SCF.updateCheck.nextStep(current, available, onDisk) };
+  }
+
+  const importBusy = () => !$('import-progress').hidden; // an import started from this popup
+
   async function load() {
     const s = await send({ type: MSG.GET_STATE });
     if (s) {
       state.recording = s.recording;
       state.saving = s.saving;
+      state.busy = !!s.busy;
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult;
+      if (s.update && 'step' in s.update) state.update = s.update;
     }
+    // re-read the extension folder's version (a git pull / copy-over shows up here)
+    freshUpdateState().then((u) => {
+      if (u) {
+        state.update = u;
+        render();
+      }
+    });
     // Clicking the toolbar icon while recording stops the recording automatically
     // (the menu then shows "Saving…" -> the saved result + recent list).
     if (state.recording && !state.saving) {
@@ -451,6 +487,11 @@
     armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
   $('update-go').addEventListener('click', () => {
+    const upd = state.update && state.update.step;
+    if (upd && upd.kind === 'reload') {
+      chrome.runtime.reload(); // loads the new files from the folder; closes this popup
+      return;
+    }
     chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
     window.close();
   });
@@ -469,9 +510,12 @@
       const s = msg.state || {};
       state.recording = s.recording;
       state.saving = !!s.saving;
+      state.busy = !!s.busy;
       state.screenshots = s.screenshots;
       state.startedAt = s.startedAt;
       state.lastResult = s.lastResult || state.lastResult;
+      // a service worker older than these files sends no `step`: keep what freshUpdateState() worked out
+      if (s.update && 'step' in s.update) state.update = s.update;
       if (msg.error) lastError = msg.error;
       render();
     } else if (msg.type === MSG.IMPORT_PROGRESS) {

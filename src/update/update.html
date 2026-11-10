@@ -55,6 +55,26 @@
         <h1>Update Almost Video Feedback</h1>
         <p class="versions">You're on v<span id="cur">?</span> → <b>v<span id="next">?</span></b> is available.</p>
 
+        <div id="ready" class="card" hidden>
+          <div class="step done">
+            <div class="n">✓</div>
+            <div class="t">
+              <b>The new version is already in your extension folder</b>
+              <span class="muted">Chrome is still running the old copy. One click switches to it.
+                This page closes when you do — that's normal.</span><br />
+              <button id="update-now" class="green">⟳ Update now</button>
+              <div id="update-now-msg" class="muted note" hidden></div>
+              <div class="muted note">If nothing happens: open <code>chrome://extensions</code> and click ⟳ on the
+                Almost Video Feedback card.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="howto">
+        <p class="muted" id="disk-line" hidden>Your extension folder still has v<span id="disk">?</span>.
+          Put the new files in it (steps below, or <code>git pull</code> for a git clone).
+          This page notices within a few seconds and switches to a one-click <b>Update now</b>.</p>
+
         <div class="card">
           <div class="step" id="s1">
             <div class="n">1</div>
@@ -68,11 +88,13 @@
           <div class="step" id="s2">
             <div class="n">2</div>
             <div class="t">
-              <b>Replace your extension folder's files</b>
+              <b>Put the new files over the old ones</b>
               <span class="muted">
-                Open the zip and copy everything into the folder you originally loaded the
-                extension from, replacing the old files. (Chrome can't do this step for an
-                unpacked extension — it's the one manual part.)
+                Open the zip. Inside is one folder, <code>almost-video-feedback</code>: open it and
+                copy <strong>everything inside it</strong> into the folder you loaded the extension from (the
+                one with <code>manifest.json</code> in it), replacing the old files when asked.
+                Don't drop the folder itself in there, or Chrome keeps running the old version.
+                (Chrome can't do this step for an unpacked extension — it's the one manual part.)
               </span>
             </div>
           </div>
@@ -83,6 +105,7 @@
               <span class="muted">One click. This page will close — that's normal. The toolbar
                 menu will show the new version.</span><br />
               <button id="reload" class="green">⟳ I replaced the files — reload now</button>
+              <div id="reload-msg" class="muted note" hidden></div>
             </div>
           </div>
         </div>
@@ -93,11 +116,13 @@
         </div>
 
         <p class="muted">
-          If the extension shows an error after reloading, the files weren't fully replaced —
-          re-extract the zip over the folder and
+          Still on the old version, or an error after reloading? The files weren't replaced —
+          copy the contents of the zip's <code>almost-video-feedback</code> folder over your
+          extension folder again and
           <button id="openext" class="small" style="margin:0 4px; padding:4px 10px;">open chrome://extensions</button>
           to hit Reload on its card.
         </p>
+        </div>
       </div>
 
       <div id="uptodate">
@@ -109,6 +134,7 @@
       </div>
     </div>
     <script src="../common/protocol.js"></script>
+    <script src="../common/update-check.js"></script>
     <script src="update.js"></script>
   </body>
 </html>

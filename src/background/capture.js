@@ -30,12 +30,18 @@
     lastKeptHash: null,
     lastKeptThumb: null, // Uint8Array gray thumbnail of the last kept frame
     seq: 0,
+    capHit: false, // the per-recording limit was reached (hooks.onCapReached already fired)
     ctx: null, // { windowId, tabId, settings, lastUrl, lastTitle }
     timer: null,
   };
 
   // Optional hooks the orchestrator can set.
-  const hooks = { onKept: null, onCapturedRaw: null };
+  const hooks = { onKept: null, onCapturedRaw: null, onCapReached: null };
+
+  const DEFAULT_CAP = 1000;
+  function capOf(settings) {
+    return (settings && settings.maxScreenshots) || DEFAULT_CAP;
+  }
 
   let captureIdCounter = 0;
 
@@ -48,6 +54,7 @@
     state.lastKeptHash = null;
     state.lastKeptThumb = null;
     state.seq = 0;
+    state.capHit = false;
     state.ctx = ctx;
     state.dir =
       root.SCF.downloads && ctx && ctx.startedAt ? root.SCF.downloads.sessionDir(ctx.startedAt) : null;
@@ -58,6 +65,7 @@
     begin(ctx);
     state.seq = lastSeq || 0;
     state.lastKeptHash = lastHash || null;
+    state.capHit = state.seq >= capOf(ctx && ctx.settings); // the SW restores its warning from meta
   }
 
   function end() {
@@ -205,6 +213,10 @@
     const settings = ctx.settings || {};
     const tabId = ctx.tabId;
 
+    // safety cap on total screenshots: once full, don't even grab the frame
+    const cap = capOf(settings);
+    if (state.seq >= cap) return;
+
     // The overlay is intentionally NOT hidden during capture (it would flicker);
     // it's a movable/minimizable bar the user can position out of shots.
     let dataUrl;
@@ -249,14 +261,7 @@
       return; // visually unchanged -> cull
     }
 
-    // 5) safety cap on total screenshots
-    const cap = settings.maxScreenshots || 300;
-    if (state.seq >= cap) {
-      console.warn('[scf] screenshot cap reached (' + cap + '), skipping further captures');
-      return;
-    }
-
-    // 6) keep it
+    // 5) keep it
     state.seq += 1;
     const seq = state.seq;
     if (hash) state.lastKeptHash = hash;
@@ -285,13 +290,26 @@
       root.SCF.downloads.saveShot(state.dir, root.SCF.exporter.fileFor(seq), blob, mime).catch(() => {});
     }
 
-    // 7) UI feedback + hook
+    // 6) UI feedback + hook
     sendToContent(tabId, { type: MSG.SCREENSHOT_TOAST, seq, trigger: req.trigger }, 100);
     if (typeof hooks.onKept === 'function') {
       try {
         hooks.onKept({ seq, trigger: req.trigger });
       } catch (e) {
         /* ignore */
+      }
+    }
+
+    // 7) that was the last picture this recording gets -> tell the orchestrator once
+    if (seq >= cap && !state.capHit) {
+      state.capHit = true;
+      console.warn('[scf] screenshot limit reached (' + cap + '); later moments get no pictures');
+      if (typeof hooks.onCapReached === 'function') {
+        try {
+          hooks.onCapReached({ cap, seq, t: evt.t });
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
   }

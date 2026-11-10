@@ -156,6 +156,12 @@
     ].join('\n');
   }
 
+  // The line feedback.md gets when the per-recording screenshot limit is reached
+  // (the overlay's big warning says the same time).
+  function capNotice(relMs) {
+    return 'Screenshot limit reached at ' + relTime(relMs) + '; later entries have no pictures.';
+  }
+
   /**
    * @param {Array} events  timeline events ({t,type,...})
    * @param {Object} meta    session meta ({startedAt, endedAt, startedAtText, ...})
@@ -170,6 +176,8 @@
       .filter((e) => e.type === 'screenshot')
       .sort((a, b) => a.t - b.t);
     const transcripts = finalTranscripts(events);
+    // {t, cap} when the screenshot limit was hit (at most one per recording)
+    const capEvt = events.find((e) => e.type === 'cap') || null;
 
     // assign each transcript to its nearest screenshot in time
     const assigned = new Map(); // seq -> [text...]
@@ -208,7 +216,8 @@
     out.push(instructionHeader(meta));
     out.push('**Session:** ' + (meta.startedAtText || '') +
       ' · duration ' + formatDuration(endedAt - startedAt) +
-      ' · ' + screenshots.length + ' screenshots');
+      ' · ' + screenshots.length + ' screenshots' +
+      (capEvt ? ' (limit of ' + capEvt.cap + ' reached at ' + relTime(capEvt.t - startedAt) + ')' : ''));
     if (meta.source) {
       out.push('');
       out.push('**Source video:** ' + (meta.source.title || '(untitled)') + (meta.source.url ? ' — ' + meta.source.url : '') +
@@ -227,7 +236,10 @@
     const blocks = [];
     for (const sh of screenshots) blocks.push({ kind: 'shot', t: sh.t, sh });
     for (const fl of floating) blocks.push({ kind: 'note', t: fl.t, text: fl.text });
-    blocks.sort((a, b) => a.t - b.t);
+    if (capEvt) blocks.push({ kind: 'cap', t: capEvt.t });
+    // same instant: the last shot first, then the limit notice
+    const ORDER = { shot: 0, cap: 1, note: 2 };
+    blocks.sort((a, b) => a.t - b.t || ORDER[a.kind] - ORDER[b.kind]);
 
     let currentUrl = null;
     for (const b of blocks) {
@@ -250,6 +262,8 @@
         out.push('');
         out.push('![' + (label) + '](' + fileFor(sh.seq) + ')');
         out.push('\n');
+      } else if (b.kind === 'cap') {
+        out.push('> **⚠️ ' + capNotice(b.t - startedAt) + '**\n');
       } else {
         out.push('_[' + relTime(b.t - startedAt) + '] ' + (isReference(meta) ? 'said in the video' : 'spoken') + ':_ ' + b.text + '\n');
       }
@@ -273,6 +287,7 @@
         endedAt,
         startedAtText: meta.startedAtText || null,
         durationMs: endedAt - startedAt,
+        screenshotLimit: capEvt ? { cap: capEvt.cap, reachedRelMs: capEvt.t - startedAt } : null,
         pages,
         screenshots: screenshots.map((sh) => ({
           seq: sh.seq,
@@ -305,7 +320,7 @@
     };
   }
 
-  const api = { build, transcriptMarkdown, promptText, relTime, formatElement, formatDuration, fileFor, TRIGGER_LABEL, TRANSCRIPT_FILE };
+  const api = { build, transcriptMarkdown, promptText, relTime, capNotice, formatElement, formatDuration, fileFor, TRIGGER_LABEL, TRANSCRIPT_FILE };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

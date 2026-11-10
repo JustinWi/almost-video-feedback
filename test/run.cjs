@@ -432,6 +432,18 @@ test('buildZipBytes round-trips entry names + data', () => {
   assert.strictEqual(storedData, '{"a":1}');
 });
 
+console.log('inkPathData (strokes -> SVG path):');
+
+test('each stroke becomes its own subpath, so strokes never join up', () => {
+  const one = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
+  const two = [{ x: 5, y: 6 }, { x: 7.5, y: 8 }, { x: 9, y: 10 }];
+  assert.strictEqual(gesture.inkPathData([one, two]), 'M1 2L3 4M5 6L7.5 8L9 10');
+});
+
+test('no strokes means an empty path', () => {
+  assert.strictEqual(gesture.inkPathData([]), '');
+});
+
 console.log('snapAxis (Shift = straight line):');
 
 test('mostly-horizontal drag snaps to a horizontal line', () => {
@@ -497,6 +509,26 @@ test('applyEdit never touches non-transcript events or unknown ids', () => {
 });
 
 // ---- mic-triage: classify why speech recognition failed ----
+
+test('a recognizer iframe that never reported falls back like a page block', () => {
+  // a page sandboxed without allow-scripts loads the iframe but never runs it
+  const v = micTriage.classify({ error: 'recognizer-silent', src: 'iframe' });
+  assert.deepStrictEqual(v, { kind: 'page-blocked', fallback: true });
+});
+
+test('a fallback recognizer that misses its start-up deadline is a timeout, then tries the page', () => {
+  const v = micTriage.classify({ error: 'start-timeout', src: 'offscreen' });
+  assert.deepStrictEqual(v, { kind: 'timeout', fallback: false });
+  assert.strictEqual(micTriage.pageFallback(v, 'offscreen'), true);
+  // ...and a page mic that times out is the end of the line
+  assert.strictEqual(micTriage.pageFallback(micTriage.classify({ error: 'start-timeout', src: 'page' }), 'page'), false);
+});
+
+test('a CSP-sandboxed page reports sandboxed, with no further fallback', () => {
+  const v = micTriage.classify({ error: 'sandboxed-page', src: 'page' });
+  assert.deepStrictEqual(v, { kind: 'sandboxed', fallback: false });
+  assert.strictEqual(micTriage.pageFallback(v, 'page'), false);
+});
 
 test('mic-triage: page Permissions-Policy block -> page-blocked + offscreen fallback', () => {
   const v = micTriage.classify({ error: 'not-allowed', src: 'iframe', policyAllowed: false, permState: 'granted' });
@@ -651,6 +683,37 @@ test('simulated "newer version available" end-to-end: fixture -> prompt state', 
   });
 });
 
+test('Web Store installs skip the GitHub update check; unpacked/sideloaded ones need it', () => {
+  assert.strictEqual(updateCheck.needsGithubCheck('normal'), false);
+  assert.strictEqual(updateCheck.needsGithubCheck('development'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck('sideload'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck('admin'), true);
+  assert.strictEqual(updateCheck.needsGithubCheck(undefined), true);
+});
+
+test('nextStep: one-click reload when the folder already has the new version', () => {
+  const avail = { version: '0.10.3' };
+  // Justin's case: repo folder pulled to 0.10.3, Chrome still running 0.10.2
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.3'), { kind: 'reload', version: '0.10.3' });
+  // folder ahead of the release we know about (or no check yet): reload still finishes it
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.4'), { kind: 'reload', version: '0.10.4' });
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', null, '0.10.3'), { kind: 'reload', version: '0.10.3' });
+  // folder still old -> the files have to be replaced first
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, '0.10.2'), { kind: 'replace', version: '0.10.3' });
+  // folder half-way (newer than running, older than the release) -> still replace
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.1', avail, '0.10.2'), { kind: 'replace', version: '0.10.3' });
+  // can't read the folder -> fall back to the release prompt
+  assert.deepStrictEqual(updateCheck.nextStep('0.10.2', avail, null), { kind: 'replace', version: '0.10.3' });
+});
+
+test('nextStep: nothing once the running version is the latest', () => {
+  assert.strictEqual(updateCheck.nextStep('0.10.3', { version: '0.10.3' }, '0.10.3'), null);
+  assert.strictEqual(updateCheck.nextStep('0.10.3', null, '0.10.3'), null);
+  assert.strictEqual(updateCheck.nextStep('0.10.3', null, null), null);
+  // stale "available" for an older version never prompts
+  assert.strictEqual(updateCheck.nextStep('0.10.3', { version: '0.10.2' }, '0.10.3'), null);
+});
+
 test('decideUpdate stays silent when current version is same or newer', () => {
   const info = updateCheck.parseReleaseInfo({ tag_name: 'v0.9.0', assets: [] }, 'f');
   assert.strictEqual(updateCheck.decideUpdate(info, '0.9.0'), null);
@@ -658,5 +721,148 @@ test('decideUpdate stays silent when current version is same or newer', () => {
   assert.strictEqual(updateCheck.decideUpdate(null, '0.9.0'), null);
 });
 
-console.log('\n' + passed + ' passed, ' + failed + ' failed');
-process.exit(failed ? 1 : 0);
+// ---- screenshot limit (per-recording cap) ----
+const config = require('../src/common/config.js');
+
+test('screenshot cap defaults to 1000', () => {
+  assert.strictEqual(config.DEFAULTS.maxScreenshots, 1000);
+});
+
+test('migrate raises a saved old-default 300 cap to 1000, once', () => {
+  const m = config.migrate({ maxScreenshots: 300, language: 'en-GB' });
+  assert.strictEqual(m.changed, true);
+  assert.strictEqual(m.settings.maxScreenshots, 1000);
+  assert.strictEqual(m.settings.language, 'en-GB'); // nothing else touched
+  assert.strictEqual(m.settings.settingsRev, config.SETTINGS_REV);
+  // after the one-time upgrade, a deliberate 300 sticks
+  const again = config.migrate({ maxScreenshots: 300, settingsRev: config.SETTINGS_REV });
+  assert.strictEqual(again.changed, false);
+  assert.strictEqual(again.settings.maxScreenshots, 300);
+});
+
+test('migrate raises a saved 12s offscreen mic deadline to 15s, once', () => {
+  const m = config.migrate({ offscreenMicStartMs: 12000, settingsRev: 2, maxScreenshots: 300 });
+  assert.strictEqual(m.changed, true);
+  assert.strictEqual(m.settings.offscreenMicStartMs, 15000);
+  assert.strictEqual(m.settings.maxScreenshots, 300); // rev-2 step already ran: a saved 300 is a choice
+  assert.strictEqual(config.DEFAULTS.offscreenMicStartMs, 15000);
+  const again = config.migrate({ offscreenMicStartMs: 12000, settingsRev: config.SETTINGS_REV });
+  assert.strictEqual(again.changed, false);
+});
+
+test('migrate leaves a user-chosen non-300 cap alone', () => {
+  assert.strictEqual(config.migrate({ maxScreenshots: 500 }).settings.maxScreenshots, 500);
+  assert.strictEqual(config.migrate({ maxScreenshots: 2000 }).settings.maxScreenshots, 2000);
+});
+
+test('protocol has the screenshot-limit messages', () => {
+  assert.strictEqual(typeof protocol.MSG.SCREENSHOT_CAP, 'string');
+  assert.strictEqual(typeof protocol.MSG.SCREENSHOT_CAP_DISMISS, 'string');
+});
+
+test('capNotice reads "Screenshot limit reached at mm:ss; later entries have no pictures."', () => {
+  assert.strictEqual(
+    exporter.capNotice(23 * 60000 + 12000),
+    'Screenshot limit reached at 23:12; later entries have no pictures.'
+  );
+});
+
+test('feedback.md marks the moment the limit was hit, after the last shot', () => {
+  const t0 = 1000000;
+  const ev = [
+    { t: t0, type: 'screenshot', seq: 1, trigger: 'start', url: 'https://a/' },
+    { t: t0 + 60000, type: 'screenshot', seq: 2, trigger: 'click', url: 'https://a/' },
+    { t: t0 + 60000, type: 'cap', cap: 2 },
+    { t: t0 + 90000, type: 'transcript', final: true, text: 'this part has no picture' },
+  ];
+  const r = exporter.build(ev, { startedAt: t0, endedAt: t0 + 100000, startedAtText: 'x' });
+  const md = r.markdown;
+  const line = 'Screenshot limit reached at 01:00; later entries have no pictures.';
+  assert.ok(md.includes(line), 'notice line present');
+  assert.ok(md.indexOf('shot-0002') < md.indexOf(line), 'after the last screenshot');
+  assert.ok(md.indexOf(line) < md.indexOf('this part has no picture'), 'before the picture-less speech');
+  assert.ok(md.includes('2 screenshots (limit of 2 reached at 01:00)'), 'header says so');
+  assert.deepStrictEqual(JSON.parse(r.json).screenshotLimit, { cap: 2, reachedRelMs: 60000 });
+});
+
+test('feedback.md has no limit line when the cap was never hit', () => {
+  const r = exporter.build(sampleEvents, sampleMeta);
+  assert.ok(!r.markdown.includes('Screenshot limit reached'));
+  assert.strictEqual(JSON.parse(r.json).screenshotLimit, null);
+});
+
+// Runs the real capture pipeline (capture.js) against a stubbed chrome API.
+async function runCapture(cap, attempts) {
+  const shots = [];
+  const hits = [];
+  let grabs = 0;
+  globalThis.chrome = {
+    runtime: { lastError: null },
+    tabs: {
+      captureVisibleTab: async () => {
+        grabs++;
+        return 'data:image/png;base64,iVBORw0KGgo=';
+      },
+      sendMessage: (id, msg, cb) => cb && cb(),
+    },
+  };
+  globalThis.SCF.imageHash = imageHash;
+  globalThis.SCF.sessionStore = {
+    addScreenshot: async (seq) => shots.push(seq),
+    addEvent: async () => {},
+    patchMeta: async () => {},
+  };
+  delete require.cache[require.resolve('../src/background/capture.js')];
+  require('../src/background/capture.js');
+  const capture = globalThis.SCF.capture;
+  capture.begin({ windowId: 1, tabId: 1, settings: { maxScreenshots: cap, minCaptureIntervalMs: 1, triggers: {} } });
+  capture.hooks.onCapReached = (x) => hits.push(x);
+  const idle = async () => {
+    while (capture._state.busy || capture._state.queue.length || capture._state.timer) {
+      await new Promise((r) => setTimeout(r, 2));
+    }
+  };
+  for (let i = 0; i < attempts; i++) {
+    capture.request('forced', {});
+    await idle();
+  }
+  capture.end();
+  return { shots, hits, grabs };
+}
+
+const asyncTests = [];
+function atest(name, fn) {
+  asyncTests.push({ name, fn });
+}
+
+atest('capture keeps exactly `cap` shots, fires the warning hook once, then stops grabbing frames', async () => {
+  const r = await runCapture(5, 9);
+  assert.deepStrictEqual(r.shots, [1, 2, 3, 4, 5]);
+  assert.strictEqual(r.hits.length, 1, 'warning fired once');
+  assert.strictEqual(r.hits[0].cap, 5);
+  assert.strictEqual(r.hits[0].seq, 5);
+  assert.strictEqual(typeof r.hits[0].t, 'number');
+  assert.strictEqual(r.grabs, 5, 'no captureVisibleTab calls past the cap');
+});
+
+atest('capture under the cap never fires the warning', async () => {
+  const r = await runCapture(5, 4);
+  assert.strictEqual(r.shots.length, 4);
+  assert.strictEqual(r.hits.length, 0);
+});
+
+(async () => {
+  for (const t of asyncTests) {
+    try {
+      await t.fn();
+      passed++;
+      console.log('  ✓ ' + t.name);
+    } catch (err) {
+      failed++;
+      console.log('  ✗ ' + t.name);
+      console.log('    ' + (err && err.message ? err.message : err));
+    }
+  }
+  console.log('\n' + passed + ' passed, ' + failed + ' failed');
+  process.exit(failed ? 1 : 0);
+})();

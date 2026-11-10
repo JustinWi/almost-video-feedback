@@ -8,7 +8,12 @@
   'use strict';
   if (root.SCF_CONFIG) return;
 
+  // Bumped when a migration in migrate() below must run once on saved settings.
+  const SETTINGS_REV = 3;
+
   const DEFAULTS = {
+    settingsRev: SETTINGS_REV,
+
     // Transcription
     transcriptEngine: 'webspeech', // swappable; only 'webspeech' wired in v1
     language: 'en-US',
@@ -36,7 +41,9 @@
 
     // Rate limiting / safety
     minCaptureIntervalMs: 650, // captureVisibleTab is browser-capped ~2/s
-    maxScreenshots: 300,
+    // Per-recording screenshot limit. Reaching it puts a big warning on the page and
+    // a line in feedback.md; the recording (and transcript) carries on without pictures.
+    maxScreenshots: 1000,
 
     // Loom import (turning a loom.com/share video into a bundle)
     loomFrameFloorSeconds: 15, // if two transcript timestamps are >this apart, fill the gap with extra frames
@@ -58,6 +65,11 @@
     // Trigger tuning
     clickCaptureDelayMs: 150,
     navSettleMs: 500,
+    recognizerSilentMs: 3000, // no word from the recognizer iframe by then = treat it as dead (sandboxed page)
+    // the overlay never sits on "Starting microphone…" forever: if the fallback
+    // recognizers aren't live by these deadlines, the SW moves on or says why
+    offscreenMicStartMs: 15000, // offscreen doc: mic grab (3s) + two audio-start attempts (4s each) + message hops fit inside
+    pageMicStartMs: 20000, // page mic: room for the user to answer Chrome's prompt
     heartbeatSeconds: 30,
     scrollIdleMs: 500,
     scrollMinDeltaPx: 200,
@@ -102,9 +114,36 @@
     return out;
   }
 
+  /**
+   * One-time upgrades of saved settings. save() stores the whole merged object, so
+   * a saved blob pins every default it was saved with — e.g. the old 300-shot cap.
+   * Pure: returns {settings, changed}; load() persists when changed.
+   */
+  function migrate(saved) {
+    const s = Object.assign({}, saved || {});
+    const rev = s.settingsRev || 1;
+    if (rev >= SETTINGS_REV) return { settings: s, changed: false };
+    // rev 2 (v0.10.0): the screenshot cap's default went 300 -> 1000. A saved 300 is
+    // almost always the old default riding along, not a choice — raise it once.
+    if (rev < 2 && s.maxScreenshots === 300) s.maxScreenshots = 1000;
+    // rev 3 (v0.10.6): the offscreen mic deadline 12s -> 15s (12s could cut off a mic that
+    // was about to start on its retry). It isn't in the options page, so 12000 is never a choice.
+    if (rev < 3 && s.offscreenMicStartMs === 12000) s.offscreenMicStartMs = 15000;
+    s.settingsRev = SETTINGS_REV;
+    return { settings: s, changed: true };
+  }
+
   async function load() {
     const got = await chrome.storage.local.get('settings');
-    return deepMerge(DEFAULTS, got.settings || {});
+    const saved = got.settings || {};
+    if (Object.keys(saved).length) {
+      const m = migrate(saved);
+      if (m.changed) {
+        await chrome.storage.local.set({ settings: m.settings });
+        return deepMerge(DEFAULTS, m.settings);
+      }
+    }
+    return deepMerge(DEFAULTS, saved);
   }
 
   async function save(partial) {
@@ -119,5 +158,6 @@
     return deepMerge(DEFAULTS, {});
   }
 
-  root.SCF_CONFIG = { DEFAULTS, load, save, reset, deepMerge };
+  root.SCF_CONFIG = { DEFAULTS, SETTINGS_REV, load, save, reset, deepMerge, migrate };
+  if (typeof module !== 'undefined' && module.exports) module.exports = root.SCF_CONFIG;
 })(typeof globalThis !== 'undefined' ? globalThis : self);

@@ -65,7 +65,17 @@
     return dx >= dy ? { x: p.x, y: anchor.y } : { x: anchor.x, y: p.y };
   }
 
-  const api = { dist, pathLength, boundingBoxDiagonal, analyzeGesture, snapAxis };
+  /**
+   * SVG path data for drawn strokes: [[{x,y}...]...] -> "M1 2L3 4M5 6L7 8". Each
+   * stroke is its own subpath, so separate strokes never join up.
+   */
+  function inkPathData(strokes) {
+    return strokes
+      .map((s) => s.map((p, i) => (i ? 'L' : 'M') + p.x + ' ' + p.y).join(''))
+      .join('');
+  }
+
+  const api = { dist, pathLength, boundingBoxDiagonal, analyzeGesture, snapAxis, inkPathData };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

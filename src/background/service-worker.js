@@ -75,11 +75,15 @@ function setBadge(mode) {
   } else {
     // idle — this is the only state the update nudge may occupy; it must never
     // paint over the recording/paused/saving badges above
-    const upd = self.SCF.updater && self.SCF.updater.availableNow();
+    const upd = self.SCF.updater && self.SCF.updater.stepNow();
     if (upd) {
       chrome.action.setBadgeText({ text: '↑' });
       chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
-      chrome.action.setTitle({ title: 'Update available — v' + upd.version + ' (open the menu → Update)' });
+      chrome.action.setTitle({
+        title: upd.kind === 'reload'
+          ? 'v' + upd.version + ' is ready — open the menu → Update now'
+          : 'Update available — v' + upd.version + ' (open the menu → How to update)',
+      });
     } else {
       chrome.action.setBadgeText({ text: '' });
       chrome.action.setTitle({ title: 'Almost Video Feedback' });
@@ -114,6 +118,19 @@ function broadcast(msg) {
   }
 }
 
+// Start recognition in the offscreen document. If it's already running this just
+// makes it report MIC_LISTENING again, which a re-armed overlay is waiting for.
+function armOffscreenRecognizer() {
+  ensureOffscreen().then(() => {
+    // creating the document takes a moment: a pause or stop in that gap must win
+    if (!(session && session.active) || session.paused) return;
+    broadcast({
+      type: MSG.OFFSCREEN_RECOGNIZE,
+      lang: (session && session.settings && session.settings.language) || 'en-US',
+    });
+  });
+}
+
 async function sendToOffscreen(msg) {
   try {
     return await chrome.runtime.sendMessage(Object.assign({ target: 'offscreen' }, msg));
@@ -122,11 +139,34 @@ async function sendToOffscreen(msg) {
   }
 }
 
+// ------------------------------------------------- screenshot limit warning
+
+// The capture pipeline just kept the last screenshot this recording may have.
+// Mark the moment in the timeline (feedback.md renders it) and put a big warning
+// on the page that stays until the user dismisses it or the recording ends.
+function onCapReached({ cap, t }) {
+  if (!session || !session.active || session.capWarning) return;
+  const atText = self.SCF.exporter.relTime(t - session.startedAt);
+  session.capWarning = { cap, t, atText, dismissed: false };
+  store.addEvent({ t, type: 'cap', cap }).catch(() => {});
+  store.patchMeta({ capWarning: session.capWarning }).catch(() => {});
+  notifyContent(session.tabId, { type: MSG.SCREENSHOT_CAP, capWarning: activeCapWarning() });
+  broadcastStatus();
+}
+
+// What a (re-)armed overlay needs: the banner (unless dismissed) + the maxed-out counter.
+function activeCapWarning() {
+  const w = session && session.capWarning;
+  return w ? { cap: w.cap, atText: w.atText, dismissed: !!w.dismissed } : null;
+}
+
 function statePayload() {
   return {
     recording: !!(session && session.active),
     paused: !!(session && session.paused),
     saving: stopping,
+    // anything a chrome.runtime.reload() would cut short (the update buttons check it)
+    busy: !!(stopping || starting || importing || (session && session.active)),
     startedAt: session ? session.startedAt : null,
     screenshots: capture.getSeq(),
     tabId: session ? session.tabId : null,
@@ -289,6 +329,7 @@ async function startRecording(requestedTabId) {
 
   capture.begin({ windowId: tab.windowId, tabId: tab.id, settings, lastUrl: tab.url, lastTitle: tab.title, startedAt });
   capture.hooks.onKept = () => broadcastStatus();
+  capture.hooks.onCapReached = onCapReached;
   transcriptOpen = true;
   transcriptText = '';
   inkFrames.clear();
@@ -580,14 +621,7 @@ function togglePause() {
     }
     setBadge('recording');
     notifyContent(session.tabId, { type: MSG.SESSION_RESUMED, recMode: session.recMode || 'iframe' });
-    if (session.recMode === 'offscreen') {
-      ensureOffscreen().then(() => {
-        broadcast({
-          type: MSG.OFFSCREEN_RECOGNIZE,
-          lang: (session && session.settings && session.settings.language) || 'en-US',
-        });
-      });
-    }
+    if (session.recMode === 'offscreen') armOffscreenRecognizer();
   }
   broadcastStatus();
   return statePayload();
@@ -669,6 +703,7 @@ async function followFocus() {
     session.recMode = 'iframe';
     session.recFallbackTried = false;
     session.pageFallbackTried = false;
+    session.offscreenFailKind = null;
     store.patchMeta({ recMode: 'iframe', recFallbackTried: false, pageFallbackTried: false }).catch(() => {});
   }
   session.tabId = tab.id;
@@ -685,7 +720,9 @@ async function followFocus() {
     startedAt: session.startedAt,
     transcript: transcriptText, // so the new window's overlay shows what we've heard
     recMode: session.recMode || 'iframe', // offscreen recognition keeps running across tab moves
+    capWarning: activeCapWarning(),
   });
+  if (session.recMode === 'offscreen') armOffscreenRecognizer(); // the new overlay needs to hear it's live
 
   // capture the newly-focused view + record the page change
   store.addEvent({ t: Date.now(), type: 'navigation', url: tab.url, title: tab.title || null });
@@ -785,6 +822,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse(togglePause());
       return false;
 
+    case MSG.UPDATE_STATE:
+      (async () => {
+        sendResponse(await self.SCF.updater.refreshState());
+      })();
+      return true;
+
     case MSG.UPDATE_CHECK_NOW:
       (async () => {
         sendResponse(await self.SCF.updater.check(true));
@@ -808,7 +851,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           transcript: transcriptText,
           paused: !!session.paused,
           recMode: session.recMode || 'iframe',
+          capWarning: activeCapWarning(), // a navigation mustn't lose the limit warning
         });
+        // the overlay just reset to "Starting…", and offscreen won't fire audio start again
+        if (session.recMode === 'offscreen' && !session.paused) armOffscreenRecognizer();
+      }
+      return false;
+
+    case MSG.SCREENSHOT_CAP_DISMISS:
+      if (session && session.capWarning && !session.capWarning.dismissed) {
+        session.capWarning.dismissed = true;
+        store.patchMeta({ capWarning: session.capWarning }).catch(() => {});
       }
       return false;
 
@@ -983,6 +1036,8 @@ const MIC_ERROR_STATUS = {
   blocked: 'Microphone was blocked. Allow it for the extension (toolbar popup), then restart recording.',
   'site-mic':
     'Microphone is blocked for this site. Click the site-settings icon left of the address bar, allow Microphone, then pause and resume.',
+  timeout: "The microphone didn't start — recording continues without a transcript. Pause and resume to try again.",
+  sandboxed: 'This page is sandboxed, which blocks the microphone — recording continues without a transcript.',
 };
 
 function handleTranscribeError(msg) {
@@ -1015,12 +1070,9 @@ function handleTranscribeError(msg) {
     session.recFallbackReason = verdict.kind;
     store.patchMeta({ recMode: 'offscreen', recFallbackTried: true, recFallbackReason: verdict.kind }).catch(() => {});
     console.warn('[scf] page recognizer blocked (' + verdict.kind + ') — falling back to offscreen recognition');
-    ensureOffscreen().then(() => {
-      broadcast({
-        type: MSG.OFFSCREEN_RECOGNIZE,
-        lang: (session && session.settings && session.settings.language) || 'en-US',
-      });
-    });
+    // the overlay holds the offscreen doc to a start-up deadline, so it must know
+    notifyContent(session.tabId, { type: MSG.REC_MODE, recMode: 'offscreen' });
+    armOffscreenRecognizer();
     return;
   }
 
@@ -1029,6 +1081,7 @@ function handleTranscribeError(msg) {
   // Chrome asks once for that site ("claude.ai wants to use your microphone").
   if (self.SCF.micTriage.pageFallback(verdict, msg.src) && !session.pageFallbackTried) {
     session.pageFallbackTried = true;
+    session.offscreenFailKind = verdict.kind; // the real story if the page turns out sandboxed
     session.recMode = 'page';
     store.patchMeta({ recMode: 'page', pageFallbackTried: true }).catch(() => {});
     console.warn('[scf] offscreen recognizer failed (' + verdict.kind + ') — falling back to the page mic');
@@ -1041,12 +1094,21 @@ function handleTranscribeError(msg) {
   // page-policy block, the page block is still the story, unless the fallback
   // discovered the real problem is the permission grant itself. A refusal in the
   // page itself means the SITE's mic permission is blocked.
+  // A sandboxed page can't use its own mic, so the offscreen failure is what the
+  // user can act on when it was the extension's permission.
   let kind = verdict.kind;
-  if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio') {
+  if (msg.src === 'page' && kind === 'sandboxed') {
+    // no grant / no mic is the real story: "other pages work normally" would be false
+    if (session.offscreenFailKind === 'permission' || session.offscreenFailKind === 'no-audio') {
+      kind = session.offscreenFailKind;
+    }
+  } else if (msg.src === 'page' && kind !== 'service' && kind !== 'no-audio' && kind !== 'timeout') {
     kind = 'site-mic';
   } else if (msg.src === 'offscreen' && kind !== 'permission' && session.recFallbackReason === 'page-blocked') {
     kind = 'page-blocked';
   }
+  // a recognizer that missed its deadline may still be trying: stop it holding the mic
+  if (verdict.kind === 'timeout') broadcast({ type: MSG.RECOGNIZER_STOP });
   notifyContent(session.tabId, { type: MSG.TRANSCRIPT_UPDATE, micError: true, micErrorKind: kind });
   broadcast({ type: MSG.STATUS, state: statePayload(), error: MIC_ERROR_STATUS[kind] || MIC_ERROR_STATUS.blocked });
 }
@@ -1078,6 +1140,7 @@ async function recover() {
         recFallbackTried: !!meta.recFallbackTried,
         recFallbackReason: meta.recFallbackReason || null,
         pageFallbackTried: !!meta.pageFallbackTried,
+        capWarning: meta.capWarning || null,
       };
       capture.restore(
         { windowId: meta.windowId, tabId: meta.tabId, settings, lastUrl: meta.lastUrl, lastTitle: meta.lastTitle, startedAt: meta.startedAt },
@@ -1085,6 +1148,7 @@ async function recover() {
         meta.lastKeptHash || null
       );
       capture.hooks.onKept = () => broadcastStatus();
+      capture.hooks.onCapReached = onCapReached;
       transcriptOpen = true;
       // rebuild the running transcript from stored finals so a re-armed overlay
       // after this restart still shows what was already heard

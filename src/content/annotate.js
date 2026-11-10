@@ -1,11 +1,15 @@
 /*
- * On-page drawing while recording (a telestrator). A full-viewport canvas painted
- * into the page so the marks show up in the screenshots. Classic content script
- * -> globalThis.SCF_ANNOTATE.
+ * On-page drawing while recording (a telestrator). A full-viewport SVG layer
+ * painted into the page so the marks show up in the screenshots. Classic content
+ * script -> globalThis.SCF_ANNOTATE.
+ *
+ * SVG, not <canvas>: in a document sandboxed without allow-scripts Chrome treats a
+ * canvas as fallback content, so strokes land in its bitmap and never reach the
+ * screen. SVG paints wherever the content script runs.
  *
  * Draw:
  *   - Pen mode (the ✎ button on the overlay, or setPenMode(true)): a plain left
- *     drag draws; the canvas takes the mouse so the page isn't clicked. Esc exits.
+ *     drag draws; the layer takes the mouse so the page isn't clicked. Esc exits.
  *   - Shortcut, no button: a right-button drag, OR a Control+Option+left drag (the
  *     safe combo on a Mac trackpad — two-finger drag is scrolling and plain
  *     Control-click is the OS secondary-click; Control+Option also works elsewhere).
@@ -13,7 +17,7 @@
  * Clearing: double the shortcut gesture (double right-click, or double
  * Control+Option-click), the overlay's clear-drawings button (next to ✎), or clear().
  *
- * Outside pen mode the canvas is pointer-events:none and never blocks the page —
+ * Outside pen mode the layer is pointer-events:none and never blocks the page —
  * we read the mouse from document listeners and only suppress the context menu
  * while actually drawing, for the Control+Option modifier, or on the 2nd click of
  * a clear.
@@ -32,6 +36,7 @@
   const DRAG_PX = 8; // movement beyond this is a draw, not a click
   const DOUBLE_MS = 450; // window for a double tap -> clear
   const PEN_MIN_PX = 2; // a pen-mode press that moves less than this is a tap, not a stroke
+  const SVG_NS = 'http://www.w3.org/2000/svg';
   const WHEEL_PASS_MS = 250; // after a wheel event in pen mode, let the page scroll for this long
   // pencil cursor (hotspot at the tip) for pen mode; crosshair where SVG cursors fail
   const PEN_CURSOR =
@@ -41,9 +46,8 @@
 
   let host = null;
   let shadow = null;
-  let canvas = null;
-  let ctx = null;
-  let dpr = 1;
+  let layer = null; // the full-viewport <svg>: paints the ink, takes the mouse in pen mode
+  let inkPath = null; // one <path>, with every stroke as a subpath
 
   let running = false;
   let color = '#ff2d95';
@@ -97,18 +101,7 @@
     return (e.buttons & 2) !== 0 || ((e.buttons & 1) !== 0 && e.ctrlKey && e.altKey);
   }
 
-  // ------------------------------------------------------------- canvas setup
-
-  function sizeCanvas() {
-    if (!canvas) return;
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
-    canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    scheduleRender();
-  }
+  // -------------------------------------------------------------- layer setup
 
   const HINT_CSS =
     '.scf-hint{position:absolute;transform:translate(-50%,-100%);padding:5px 10px;border-radius:8px;' +
@@ -128,12 +121,16 @@
     const style = document.createElement('style');
     style.textContent = HINT_CSS;
     shadow.appendChild(style);
-    canvas = document.createElement('canvas');
-    canvas.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;display:block;';
-    shadow.appendChild(canvas);
+    layer = document.createElementNS(SVG_NS, 'svg');
+    layer.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;display:block;';
+    inkPath = document.createElementNS(SVG_NS, 'path');
+    inkPath.setAttribute('fill', 'none');
+    inkPath.setAttribute('stroke-width', '4');
+    inkPath.setAttribute('stroke-linecap', 'round');
+    inkPath.setAttribute('stroke-linejoin', 'round');
+    layer.appendChild(inkPath);
+    shadow.appendChild(layer);
     (document.documentElement || document.body).appendChild(host);
-    ctx = canvas.getContext('2d');
-    sizeCanvas();
   }
 
   // --------------------------------------------------------------- rendering
@@ -146,34 +143,13 @@
     });
   }
 
-  function strokePath(points) {
-    if (!points.length) return;
-    if (points.length === 1) {
-      ctx.beginPath();
-      ctx.arc(points[0].x, points[0].y, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-      return;
-    }
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-    ctx.stroke();
-  }
-
   function render() {
-    if (!ctx) return;
-    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 4;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
-    for (const s of strokes) strokePath(s);
+    if (!inkPath) return;
     // don't paint a 1-point in-progress stroke — a tap/click shouldn't leave a dot
-    if (curStroke && curStroke.length >= 2) strokePath(curStroke);
-    ctx.shadowBlur = 0;
+    const live = curStroke && curStroke.length >= 2 ? strokes.concat([curStroke]) : strokes;
+    inkPath.setAttribute('d', root.SCF_GESTURE.inkPathData(live));
+    inkPath.setAttribute('stroke', color);
+    inkPath.style.filter = 'drop-shadow(0 0 6px ' + color + ')';
   }
 
   // ------------------------------------------------------------------- hint
@@ -367,7 +343,7 @@
 
   // ------------------------------------------------------------ pen mode
 
-  // Pen mode: the canvas takes the pointer, so a plain left drag draws instead of
+  // Pen mode: the layer takes the pointer, so a plain left drag draws instead of
   // clicking the page. preventDefault on pointerdown also suppresses the page's
   // compatibility mousedown/mouseup, so no click screenshot fires mid-drawing.
   function onPenDown(e) {
@@ -377,7 +353,7 @@
     penDrawing = true;
     beginStroke({ x: e.clientX, y: e.clientY });
     try {
-      canvas.setPointerCapture(e.pointerId);
+      layer.setPointerCapture(e.pointerId);
     } catch (_) {
       /* ignore */
     }
@@ -392,7 +368,7 @@
     if (!penDrawing) return;
     penDrawing = false;
     try {
-      canvas.releasePointerCapture(e.pointerId);
+      layer.releasePointerCapture(e.pointerId);
     } catch (_) {
       /* ignore */
     }
@@ -402,14 +378,14 @@
     scheduleRender();
   }
 
-  // The canvas would swallow the wheel; step aside briefly so the page (or an
+  // The layer would swallow the wheel; step aside briefly so the page (or an
   // inner scroll area) scrolls under it. Only the first wheel tick is lost.
   function onPenWheel() {
-    if (!penMode || !canvas) return;
-    canvas.style.pointerEvents = 'none';
+    if (!penMode || !layer) return;
+    layer.style.pointerEvents = 'none';
     clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => {
-      if (penMode && canvas) canvas.style.pointerEvents = 'auto';
+      if (penMode && layer) layer.style.pointerEvents = 'auto';
     }, WHEEL_PASS_MS);
   }
 
@@ -424,10 +400,10 @@
     if (next === penMode) return;
     penMode = next;
     clearTimeout(wheelTimer);
-    if (canvas) {
-      canvas.style.pointerEvents = penMode ? 'auto' : 'none';
-      canvas.style.cursor = penMode ? PEN_CURSOR : '';
-      canvas.style.touchAction = penMode ? 'none' : '';
+    if (layer) {
+      layer.style.pointerEvents = penMode ? 'auto' : 'none';
+      layer.style.cursor = penMode ? PEN_CURSOR : '';
+      layer.style.touchAction = penMode ? 'none' : '';
     }
     if (!penMode && penDrawing) {
       penDrawing = false;
@@ -449,14 +425,13 @@
     on(document, 'mousemove', onMove, { passive: true });
     on(document, 'mouseup', onUp, true);
     on(document, 'contextmenu', onContextMenu, true);
-    on(window, 'resize', sizeCanvas, { passive: true });
     on(window, 'keydown', onKey, true);
     on(window, 'keyup', onKey, true);
-    on(canvas, 'pointerdown', onPenDown);
-    on(canvas, 'pointermove', onPenMove, { passive: true });
-    on(canvas, 'pointerup', onPenUp);
-    on(canvas, 'pointercancel', onPenUp);
-    on(canvas, 'wheel', onPenWheel, { passive: true });
+    on(layer, 'pointerdown', onPenDown);
+    on(layer, 'pointermove', onPenMove, { passive: true });
+    on(layer, 'pointerup', onPenUp);
+    on(layer, 'pointercancel', onPenUp);
+    on(layer, 'wheel', onPenWheel, { passive: true });
   }
 
   // --------------------------------------------------------------- lifecycle
@@ -465,7 +440,6 @@
     strokes = [];
     curStroke = null;
     hideHint();
-    if (ctx) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     emitInk();
     scheduleRender();
   }
@@ -496,7 +470,7 @@
     lastMenuAt = 0;
     lastTapAt = 0;
     if (host && host.parentNode) host.parentNode.removeChild(host);
-    host = shadow = canvas = ctx = null;
+    host = shadow = layer = inkPath = null;
   }
 
   const api = {

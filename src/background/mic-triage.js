@@ -14,7 +14,7 @@
  * permissions policy, permState from navigator.permissions); this classifies
  * that evidence into { kind, fallback }.
  *
- * kind: 'page-blocked' | 'permission' | 'service' | 'no-audio' | 'blocked' | 'other'
+ * kind: 'page-blocked' | 'permission' | 'service' | 'no-audio' | 'blocked' | 'timeout' | 'sandboxed' | 'other'
  * fallback: whether the SW should retry recognition in the offscreen document.
  * When the evidence is inconclusive (no permState), fallback doubles as the
  * probe: it succeeds if the page was the blocker, and fails with a precise
@@ -31,6 +31,17 @@
     const result = (kind, fallback) => ({ kind, fallback: !!fallback && src !== 'offscreen' });
 
     if (error === 'audio-capture' || error === 'offscreen-no-audio') return result('no-audio', false);
+
+    // The iframe stayed silent: a page sandboxed without allow-scripts loads it
+    // but never runs it. The content script reports this, since the iframe can't.
+    if (error === 'recognizer-silent') return result('page-blocked', true);
+
+    // The overlay's start-up deadline passed with no live mic from the offscreen
+    // doc or the page (e.g. a mic grab that never settles).
+    if (error === 'start-timeout') return result('timeout', false);
+
+    // A CSP-sandboxed page (opaque origin) can't hold a mic grant of its own.
+    if (error === 'sandboxed-page') return result('sandboxed', false);
 
     if (error === 'not-allowed' || error === 'service-not-allowed') {
       if (i.policyAllowed === false) return result('page-blocked', true);
@@ -54,7 +65,7 @@
    */
   function pageFallback(verdict, src) {
     if (src !== 'offscreen' || !verdict) return false;
-    return ['page-blocked', 'blocked', 'permission', 'no-audio'].indexOf(verdict.kind) !== -1;
+    return ['page-blocked', 'blocked', 'permission', 'no-audio', 'timeout'].indexOf(verdict.kind) !== -1;
   }
 
   root.SCF = root.SCF || {};

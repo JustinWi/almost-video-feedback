@@ -120,7 +120,7 @@
     chrome.runtime.sendMessage({ type: self.SCF.MSG.UPDATE_CHECK_NOW }, (u) => {
       void chrome.runtime.lastError;
       if (u && u.available) {
-        status.textContent = 'v' + u.available.version + ' is available — see the toolbar menu → Update.';
+        status.textContent = 'v' + u.available.version + ' is available — open the toolbar menu → its update button.';
       } else if (u) {
         status.textContent = "You're up to date (v" + u.current + ').';
       } else {

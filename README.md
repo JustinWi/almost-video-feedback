@@ -83,7 +83,10 @@ screenshots/0002.png
 ```
 
 `feedback.md` interleaves, in order: what you did, what you said at that moment, the page URL, the
-clicked/selected element, and the screenshot. The clipboard gets a prompt like:
+clicked/selected element, and the screenshot. A recording keeps up to **1000 screenshots** (Settings →
+Max screenshots / session). When it hits that, a big warning goes up on the page and `feedback.md` gets
+a line saying when (`Screenshot limit reached at 23:12; later entries have no pictures.`); your voice is
+still recorded after that. The clipboard gets a prompt like:
 
 > I recorded visual + spoken feedback on my web app. Please read the feedback file and address
 > each item. Screenshots are referenced relative to the file, in the same folder.
@@ -112,9 +115,10 @@ Requires Chrome 116+.
 Chrome doesn't auto-update unpacked extensions, so the extension **checks once a day** for a new
 GitHub release (version tag only — no user data; disable in Settings → Updates). When one is out
 you'll see a green **↑** on the toolbar icon, a notification, and an **Update** button in the menu.
-Clicking any of them opens a guided page: download the zip, extract it over your extension folder
-(the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
-clone instead? `git pull`, then the same Reload button.
+Clicking any of them opens a guided page: download the zip, copy the contents of its
+`almost-video-feedback` folder over your extension folder (the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
+clone instead? `git pull`: the menu's button turns into **⟳ Update now**, and that one click finishes it.
+Once you're on the latest version the ↑, the menu button and the notice clear themselves.
 
 ## Microphone
 
@@ -154,7 +158,7 @@ the only `fetch` is of a local `data:` URL. Full
 - **Permissions:** it requests broad permissions because it has to work on *any* site you review —
   `<all_urls>` (inject the overlay + read the page you're reviewing), screenshot the active tab, the
   microphone, downloads, and local storage. It only acts on the tab you're actively recording. The
-  lightweight **drawing layer** (a canvas you draw on) is also injected into sub-frames/iframes so you
+  lightweight **drawing layer** (an SVG layer you draw on) is also injected into sub-frames/iframes so you
   can draw over embedded content; like the rest of the extension it makes no network requests.
 - **Reviewing untrusted pages:** `feedback.md` includes text copied from the page (URLs, element
   labels, your selections). If you record on a page with attacker-controlled content, that text ends
@@ -223,7 +227,7 @@ The library keeps the most recent 40 sessions (older ones are pruned automatical
 Right-click the extension → **Options** (or the popup's **Settings** link) to tune: whether clicking
 the toolbar icon starts a recording instantly, transcription language, which triggers are active,
 capture format (PNG/JPEG), the dedup aggressiveness, how **click** screenshots dedup (smart /
-always / global), whether **on-page drawing** is enabled, the safety cap, and the timing thresholds
+always / global), whether **on-page drawing** is enabled, the screenshot limit (default 1000), and the timing thresholds
 for scroll/dwell/circle detection.
 
 ---
