@@ -479,6 +479,15 @@ test("page-mic deadline holds only while Chrome's site-mic prompt is open", () =
   }
 });
 
+test('speech.answersPrompt: Allow or Block restarts the page-mic deadline', () => {
+  assert.strictEqual(speech.answersPrompt('granted'), true);
+  assert.strictEqual(speech.answersPrompt('denied'), true);
+  // still open, or no way to tell: keep waiting on the existing deadline
+  for (const s of ['prompt', undefined, null, '', 'GRANTED']) {
+    assert.strictEqual(speech.answersPrompt(s), false, String(s));
+  }
+});
+
 console.log('transcript (edit while paused):');
 
 const txEvents = [
