@@ -40,6 +40,7 @@
       return;
     }
     const ready = step.kind === 'reload';
+    target = ready ? step.version : null;
     $('cur').textContent = current;
     $('next').textContent = step.version;
     $('next2').textContent = step.version;
@@ -60,7 +61,13 @@
     mismatch = fc.track(mismatch, r, Date.now(), STABLE_MS);
     return r;
   }
-  const refusal = (r) => (mismatch.modified ? fc.describeModified(r) : fc.describe(r));
+  // "Reload anyway" only for the release being updated to, already on disk (the ready
+  // view). In the how-to view the folder still holds the OLD version's files and listing,
+  // so a stable mismatch there is a copy of the new release stalled half way (a dialog
+  // behind Chrome): reloading can only load a mix, never finish the update.
+  let target = null; // step.version while the ready view is shown
+  const canForce = (r) => !!(mismatch && mismatch.modified && target && r.version === target);
+  const refusal = (r) => (canForce(r) ? fc.describeModified(r) : fc.describe(r));
 
   // Ready by manifest.json, but a zip copy may still be landing: hold the button
   // until every file the release lists matches, re-checking every few seconds.
@@ -70,7 +77,7 @@
     const copying = r.ok === false;
     $('update-now').disabled = copying;
     if (copying || copyMsgShown) $('update-now-msg').hidden = !copying;
-    $('update-now-anyway').hidden = !(copying && mismatch.modified);
+    $('update-now-anyway').hidden = !(copying && canForce(r));
     copyMsgShown = copying;
     if (copying) {
       $('update-now-msg').textContent = refusal(r);
@@ -112,10 +119,10 @@
   // the same stable one (a copy that started since is refused like any other)
   async function reloadWhenIdle(msgEl, anywayEl, anyway) {
     const r = await checkFolder();
-    if (r.ok === false && !(anyway && mismatch.modified)) {
+    if (r.ok === false && !(anyway && canForce(r))) {
       msgEl.hidden = false;
       msgEl.textContent = refusal(r);
-      anywayEl.hidden = !mismatch.modified;
+      anywayEl.hidden = !canForce(r);
       return;
     }
     const s = await send({ type: MSG.GET_STATE });

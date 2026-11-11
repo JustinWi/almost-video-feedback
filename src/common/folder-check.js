@@ -39,7 +39,7 @@
   // caught mid-write, which is always a copy in progress)
   function signature(r) {
     if (!r || r.ok !== false || !r.found || !r.bad || !r.bad.length) return null;
-    return JSON.stringify(r.bad.map((p) => [p, r.found[p] || null]));
+    return JSON.stringify([r.version || null, r.bad.map((p) => [p, r.found[p] || null])]);
   }
 
   // pure: follow a refusal across checks. prev = the last track() result (or null).
