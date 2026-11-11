@@ -96,9 +96,21 @@
     return row && row.v ? row.v.value : null;
   }
 
+  // Read and write in ONE readwrite transaction: IndexedDB runs overlapping readwrite
+  // transactions on a store one after another, so two patches fired together (route
+  // change + page-mic fallback) both land instead of the last one wiping the other.
   async function patchMeta(patch) {
-    const cur = (await getMeta()) || {};
-    return setMeta(Object.assign({}, cur, patch));
+    let value;
+    await tx('meta', 'readwrite', (t) => {
+      const os = t.objectStore('meta');
+      const r = os.get('session');
+      r.onsuccess = () => {
+        const cur = (r.result && r.result.value) || {};
+        value = Object.assign({}, cur, patch);
+        os.put({ key: 'session', value });
+      };
+    });
+    return value;
   }
 
   async function addEvent(evt) {
