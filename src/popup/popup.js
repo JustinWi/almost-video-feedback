@@ -6,6 +6,12 @@
   const videoSource = self.SCF.videoSource;
   const exporter = self.SCF.exporter;
   const REF_KEY = 'importAsReference'; // remembers the reference tick between imports
+  const fc = self.SCF.folderCheck;
+  const FOLDER_STABLE_MS = self.SCF_CONFIG.DEFAULTS.folderStableMs;
+  const FOLDER_POLL_MS = 2500;
+  let mismatch = null; // folderCheck.track() state while this popup is open
+  let folderMsg = ''; // why Update now was refused; kept over re-renders until the folder matches
+  let folderTimer = null;
   let videoTab = null; // the active tab if it holds an importable video (Loom share / YouTube watch)
   let videoSrc = null; // { kind, label } for videoTab
   let lastProgress = { done: 0, total: 0 }; // last capture tick, so an ad pause keeps the bar in place
@@ -151,12 +157,20 @@
     if (upd) {
       const ready = upd.kind === 'reload';
       $('update-text').textContent = ready
-        ? 'v' + upd.version + ' is ready in your extension folder'
+        ? folderMsg || 'v' + upd.version + ' is ready in your extension folder'
         : 'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
       $('update-go').textContent = ready ? '⟳ Update now' : 'How to update';
       // reloading mid-save would lose the recording being written
       $('update-go').disabled = ready && !!(state.saving || state.recording || state.busy || importBusy());
       $('update-go').title = $('update-go').disabled ? 'Wait for the recording or import to finish' : '';
+      // edited files, not a copy: Update now would only refuse again, so it waits (as on
+      // the update page) and the quiet "Reload anyway" is the way past
+      const anyway = ready && !!folderMsg && !!mismatch && mismatch.modified;
+      $('update-anyway').hidden = !anyway;
+      $('update-banner').classList.toggle('has-anyway', anyway);
+      $('update-anyway').disabled = !!(state.saving || state.recording || state.busy || importBusy());
+      $('update-anyway').title = $('update-anyway').disabled ? 'Wait for the recording or import to finish' : '';
+      if (anyway) $('update-go').disabled = true;
     }
 
     if (state.recording) {
@@ -486,28 +500,47 @@
     if (!id) return;
     armConfirm(e.currentTarget, 'Delete?', () => deleteRecording(id));
   });
-  $('update-go').addEventListener('click', async () => {
+  // hash the folder against the release's file list; a refusal is kept in folderMsg and
+  // re-checked while the popup stays open, so a finished copy (or a stable edit) shows by itself
+  async function checkFolder() {
+    const r = await fc.check().catch(() => ({ ok: null }));
+    mismatch = fc.track(mismatch, r, Date.now(), FOLDER_STABLE_MS);
+    folderMsg = r.ok !== false ? '' : mismatch.modified ? fc.describeModified(r) : fc.describe(r);
+    clearTimeout(folderTimer);
+    if (folderMsg) folderTimer = setTimeout(recheckFolder, FOLDER_POLL_MS);
+    return r;
+  }
+  async function recheckFolder() {
     const upd = state.update && state.update.step;
-    if (upd && upd.kind === 'reload') {
-      // a zip still being copied over would load half old, half new files
-      $('update-go').disabled = true;
-      const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
-      if (r.ok === false) {
-        $('update-text').textContent = self.SCF.folderCheck.describe(r);
-        $('update-go').disabled = false;
-        return;
-      }
-      // a recording or import may have started during the check: the idle test is the last word
-      if (state.saving || state.recording || state.busy || importBusy()) {
-        render();
-        return;
-      }
-      chrome.runtime.reload(); // loads the new files from the folder; closes this popup
+    if (!folderMsg || !upd || upd.kind !== 'reload') return;
+    await checkFolder();
+    render();
+  }
+  // anyway: "Reload anyway", which passes only while the mismatch is still the same
+  // stable one (a copy that started since is refused like any other)
+  async function updateNow(anyway) {
+    // a zip still being copied over would load half old, half new files
+    $('update-go').disabled = true;
+    $('update-anyway').disabled = true;
+    const r = await checkFolder(); // every path below re-renders (re-enabling both) or reloads
+    if (r.ok === false && !(anyway && mismatch.modified)) {
+      render();
       return;
     }
+    // a recording or import may have started during the check: the idle test is the last word
+    if (state.saving || state.recording || state.busy || importBusy()) {
+      render();
+      return;
+    }
+    chrome.runtime.reload(); // loads the new files from the folder; closes this popup
+  }
+  $('update-go').addEventListener('click', () => {
+    const upd = state.update && state.update.step;
+    if (upd && upd.kind === 'reload') return updateNow(false);
     chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
     window.close();
   });
+  $('update-anyway').addEventListener('click', () => updateNow(true));
 
   $('recordings').addEventListener('click', () => openRecordings());
   $('view').addEventListener('click', () => openRecordings());
