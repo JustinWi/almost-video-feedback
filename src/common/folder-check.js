@@ -9,20 +9,46 @@
  * No listing, or one from another version (a git checkout never has one) -> unknown
  * ({ ok: null }) and the reload goes ahead as before.
  *
+ * A listing of the SAME version over files changed since (a zip copied over a git
+ * checkout, then a git pull or a local edit) would refuse forever. The pages tell the
+ * two apart over time with track(): a copy still landing changes between checks, an
+ * edited folder doesn't. The same mismatch held for folderStableMs (config.js) is
+ * "modified", and the pages offer a secondary "Reload anyway".
+ *
  * Classic script: sets self.SCF.folderCheck; compareListing is also exported for tests.
  */
 (function (root) {
   'use strict';
   const LISTING = 'release-files.json';
 
-  // pure: -> { ok: true | false | null, total, bad: [paths] }
+  // pure: -> { ok: true | false | null, total, bad: [paths] }; a hash comparison also
+  // carries the listing's version and found: { badPath: disk sha256 | null (missing) }
   function compareListing(listing, diskVersion, hashes) {
     if (!listing || !listing.files || !diskVersion || listing.version !== diskVersion) {
       return { ok: null, total: 0, bad: [] };
     }
     const paths = Object.keys(listing.files);
     const bad = paths.filter((p) => !hashes || hashes[p] !== listing.files[p]);
-    return { ok: bad.length === 0, total: paths.length, bad };
+    const found = {};
+    for (const p of bad) found[p] = (hashes && hashes[p]) || null;
+    return { ok: bad.length === 0, total: paths.length, bad, version: listing.version, found };
+  }
+
+  // pure: which files differ and what each holds on disk now, as one string; null when
+  // there is no hash mismatch to fingerprint (nothing wrong, or a manifest/listing
+  // caught mid-write, which is always a copy in progress)
+  function signature(r) {
+    if (!r || r.ok !== false || !r.found || !r.bad || !r.bad.length) return null;
+    return JSON.stringify(r.bad.map((p) => [p, r.found[p] || null]));
+  }
+
+  // pure: follow a refusal across checks. prev = the last track() result (or null).
+  // -> { sig, since, modified }: modified once the same mismatch has held >= stableMs
+  function track(prev, r, now, stableMs) {
+    const sig = signature(r);
+    if (!sig) return { sig: null, since: 0, modified: false };
+    const since = prev && prev.sig === sig ? prev.since : now;
+    return { sig, since, modified: now - since >= stableMs };
   }
 
   async function readFolder(rel, as) {
@@ -120,7 +146,15 @@
       '. Wait a moment, then click again. If this doesn\'t change, copy the zip\'s files over again.';
   }
 
-  const api = { LISTING, compareListing, check, describe };
+  // plain words for a mismatch that has stopped changing (track().modified)
+  function describeModified(r) {
+    const n = r.bad.length;
+    return n + (n === 1 ? ' file' : ' files') + ' in your extension folder ' + (n === 1 ? "doesn't" : "don't") +
+      ' match the v' + r.version + ' release (they may have been edited). If you meant that, you can reload anyway.' +
+      " If you're still copying the zip's files, finish that first.";
+  }
+
+  const api = { LISTING, compareListing, signature, track, check, describe, describeModified };
 
   root.SCF = root.SCF || {};
   root.SCF.folderCheck = root.SCF.folderCheck || api;

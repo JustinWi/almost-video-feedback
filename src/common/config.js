@@ -90,6 +90,10 @@
     // so a test can point the check at a fixture.
     updateCheck: true,
     updateCheckUrl: 'https://api.github.com/repos/JustinWi/almost-video-feedback/releases/latest',
+    // Update now refuses while the folder doesn't match the release's file list (a copy
+    // still landing). A mismatch that hasn't changed for this long is edited files, not a
+    // copy: the update page and popup then offer "Reload anyway". Not in the options page.
+    folderStableMs: 10000,
 
     // On-page drawing while recording: the overlay's ✎ pen toggle (then left-drag), or
     // right-drag / Control+Option+left-drag (the safe combo on a Mac) to draw on the

@@ -12,6 +12,8 @@
   const MSG = self.SCF.MSG;
   const $ = (id) => document.getElementById(id);
   const POLL_MS = 2500;
+  const fc = self.SCF.folderCheck;
+  const STABLE_MS = self.SCF_CONFIG.DEFAULTS.folderStableMs;
 
   function send(msg) {
     return new Promise((resolve) => {
@@ -50,17 +52,28 @@
     else watchCopy();
   }
 
+  // every folder check goes through here, so a mismatch that stops changing (edited
+  // files, not a copy) is seen whichever button or poll looked last
+  let mismatch = null; // folderCheck.track() state
+  async function checkFolder() {
+    const r = await fc.check().catch(() => ({ ok: null }));
+    mismatch = fc.track(mismatch, r, Date.now(), STABLE_MS);
+    return r;
+  }
+  const refusal = (r) => (mismatch.modified ? fc.describeModified(r) : fc.describe(r));
+
   // Ready by manifest.json, but a zip copy may still be landing: hold the button
   // until every file the release lists matches, re-checking every few seconds.
   let copyMsgShown = false; // only clear the message this check put up, not a "still recording" one
   async function watchCopy() {
-    const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
+    const r = await checkFolder();
     const copying = r.ok === false;
     $('update-now').disabled = copying;
     if (copying || copyMsgShown) $('update-now-msg').hidden = !copying;
+    $('update-now-anyway').hidden = !(copying && mismatch.modified);
     copyMsgShown = copying;
     if (copying) {
-      $('update-now-msg').textContent = self.SCF.folderCheck.describe(r);
+      $('update-now-msg').textContent = refusal(r);
       clearTimeout(pollTimer);
       pollTimer = setTimeout(refresh, POLL_MS);
     }
@@ -95,11 +108,14 @@
 
   // reloading kills a recording that is still being made or saved, so check first
   // (folder check first: it can take a couple of seconds, and the idle check must be the last word)
-  async function reloadWhenIdle(msgEl) {
-    const r = await self.SCF.folderCheck.check().catch(() => ({ ok: null }));
-    if (r.ok === false) {
+  // anyway: the "Reload anyway" button, which passes only while the mismatch is still
+  // the same stable one (a copy that started since is refused like any other)
+  async function reloadWhenIdle(msgEl, anywayEl, anyway) {
+    const r = await checkFolder();
+    if (r.ok === false && !(anyway && mismatch.modified)) {
       msgEl.hidden = false;
-      msgEl.textContent = self.SCF.folderCheck.describe(r);
+      msgEl.textContent = refusal(r);
+      anywayEl.hidden = !mismatch.modified;
       return;
     }
     const s = await send({ type: MSG.GET_STATE });
@@ -111,7 +127,8 @@
     chrome.runtime.reload(); // loads the folder's files; closes this page (expected)
   }
 
-  $('update-now').addEventListener('click', () => reloadWhenIdle($('update-now-msg')));
+  $('update-now').addEventListener('click', () => reloadWhenIdle($('update-now-msg'), $('update-now-anyway')));
+  $('update-now-anyway').addEventListener('click', () => reloadWhenIdle($('update-now-msg'), $('update-now-anyway'), true));
 
   $('dl').addEventListener('click', () => {
     if (!upd || !upd.zipUrl) return;
@@ -122,7 +139,8 @@
     });
   });
 
-  $('reload').addEventListener('click', () => reloadWhenIdle($('reload-msg')));
+  $('reload').addEventListener('click', () => reloadWhenIdle($('reload-msg'), $('reload-anyway')));
+  $('reload-anyway').addEventListener('click', () => reloadWhenIdle($('reload-msg'), $('reload-anyway'), true));
 
   $('openext').addEventListener('click', () => {
     chrome.tabs.create({ url: 'chrome://extensions' });

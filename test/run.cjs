@@ -728,15 +728,52 @@ test('folderCheck: Update now waits for a zip copy-over to finish', () => {
   const listing = { version: '0.10.7', files: { 'manifest.json': 'aa', 'src/a.js': 'bb', 'src/b.js': 'cc' } };
   // every file matches -> go
   assert.deepStrictEqual(folderCheck.compareListing(listing, '0.10.7', { 'manifest.json': 'aa', 'src/a.js': 'bb', 'src/b.js': 'cc' }),
-    { ok: true, total: 3, bad: [] });
+    { ok: true, total: 3, bad: [], version: '0.10.7', found: {} });
   // mid-copy: one old, one not there yet -> hold
   const mid = folderCheck.compareListing(listing, '0.10.7', { 'manifest.json': 'aa', 'src/a.js': 'old', 'src/b.js': null });
-  assert.deepStrictEqual(mid, { ok: false, total: 3, bad: ['src/a.js', 'src/b.js'] });
+  assert.deepStrictEqual(mid, { ok: false, total: 3, bad: ['src/a.js', 'src/b.js'], version: '0.10.7', found: { 'src/a.js': 'old', 'src/b.js': null } });
   assert.ok(/1 of 3 done/.test(folderCheck.describe(mid)));
   // no listing (git checkout), or one left from another version -> unknown, reload goes ahead
   assert.strictEqual(folderCheck.compareListing(null, '0.10.7', {}).ok, null);
   assert.strictEqual(folderCheck.compareListing(listing, '0.10.8', {}).ok, null);
   assert.strictEqual(folderCheck.compareListing(listing, null, {}).ok, null);
+});
+
+test('folderCheck.track: a mismatch that stops changing is edited files, a changing one is a copy', () => {
+  const listing = { version: '9.0.1', files: { 'manifest.json': 'aa', 'src/a.js': 'bb', 'src/b.js': 'cc' } };
+  const cmp = (a, b) => folderCheck.compareListing(listing, '9.0.1', { 'manifest.json': 'aa', 'src/a.js': a, 'src/b.js': b });
+  const STABLE = 10000;
+  // nothing to fingerprint: a match, unknown, or a refusal with no hashes (manifest mid-write)
+  assert.strictEqual(folderCheck.signature(cmp('bb', 'cc')), null);
+  assert.strictEqual(folderCheck.signature({ ok: null, total: 0, bad: [] }), null);
+  assert.strictEqual(folderCheck.signature({ ok: false, total: 0, bad: ['manifest.json'] }), null);
+  // the fingerprint covers which files differ AND what they hold now
+  assert.notStrictEqual(folderCheck.signature(cmp('x1', 'cc')), folderCheck.signature(cmp('x2', 'cc')));
+  assert.notStrictEqual(folderCheck.signature(cmp('x1', 'cc')), folderCheck.signature(cmp('x1', null)));
+  // same mismatch held: copying until stableMs, then modified
+  let t = folderCheck.track(null, cmp('edited', 'cc'), 1000, STABLE);
+  assert.strictEqual(t.modified, false);
+  t = folderCheck.track(t, cmp('edited', 'cc'), 1000 + STABLE - 1, STABLE);
+  assert.strictEqual(t.modified, false);
+  t = folderCheck.track(t, cmp('edited', 'cc'), 1000 + STABLE, STABLE);
+  assert.strictEqual(t.modified, true);
+  // a copy (re)starting changes the mismatch: back to copying, clock restarts
+  t = folderCheck.track(t, cmp('edited', null), 1000 + STABLE + 2500, STABLE);
+  assert.strictEqual(t.modified, false);
+  assert.strictEqual(t.since, 1000 + STABLE + 2500);
+  // a still-changing copy never turns into modified, however long it runs
+  t = null;
+  for (let i = 0; i < 20; i++) t = folderCheck.track(t, cmp('part' + i, null), i * 2500, STABLE);
+  assert.strictEqual(t.modified, false);
+  // a refusal with no hashes in between resets; a match resets
+  t = folderCheck.track({ sig: folderCheck.signature(cmp('e', 'cc')), since: 0, modified: true },
+    { ok: false, total: 0, bad: ['manifest.json'] }, 99999, STABLE);
+  assert.strictEqual(t.modified, false);
+  assert.strictEqual(folderCheck.track(t, cmp('bb', 'cc'), 999999, STABLE).modified, false);
+  // plain words: count, version, singular/plural
+  assert.ok(/^1 file in your extension folder doesn't match the v9\.0\.1 release/.test(folderCheck.describeModified(cmp('e', 'cc'))));
+  assert.ok(/^2 files .* don't match/.test(folderCheck.describeModified(cmp('e', 'f'))));
+  assert.ok(/reload anyway/.test(folderCheck.describeModified(cmp('e', 'f'))));
 });
 
 test('decideUpdate stays silent when current version is same or newer', () => {
