@@ -839,8 +839,10 @@
   //    so it can't report anything itself.
   //  - offscreen / page: a mic grab or speech start that never settles.
   // The page mic is the exception while Chrome's site-mic prompt is open: Web
-  // Speech doesn't start until the user answers it, so the deadline holds until
-  // they do and then starts over (see holdPageDeadline).
+  // Speech doesn't start until the user answers it, so an answer restarts the
+  // deadline from that moment (watched from the arm, so an Allow just before the
+  // deadline still gets the full time), and an expired deadline holds until they
+  // answer (see holdPageDeadline).
   function armRecWatchdog(mode) {
     clearRecWatchdog();
     const gen = recWatchGen;
@@ -859,6 +861,39 @@
       }
       send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: mode });
     }, ms);
+    if (mode === 'page') {
+      queryMicPerm().then((status) => {
+        if (stalePage(gen)) return;
+        if (status && speechLib && speechLib.waitsOnPrompt(status.state)) watchMicPrompt(gen, status);
+      });
+    }
+  }
+
+  function stalePage(gen) {
+    return gen !== recWatchGen || micListening || paused || !recording || recMode !== 'page';
+  }
+
+  // The site's mic PermissionStatus, or null (no Permissions API / query failed).
+  function queryMicPerm() {
+    let query = null;
+    try {
+      query = navigator.permissions.query({ name: 'microphone' });
+    } catch (e) {
+      /* no Permissions API: treat as not prompting */
+    }
+    return Promise.resolve(query).catch(() => null);
+  }
+
+  // Chrome's site-mic prompt is open for this deadline: when the user answers it,
+  // give the recognizer a fresh deadline counted from the answer. clearRecWatchdog
+  // (any re-arm, pause, stop, REC_MODE, mic live) drops the watch.
+  function watchMicPrompt(gen, status) {
+    if (micPermWatch && micPermWatch !== status) micPermWatch.onchange = null;
+    micPermWatch = status;
+    status.onchange = () => {
+      if (stalePage(gen) || !(speechLib && speechLib.answersPrompt(status.state))) return;
+      armRecWatchdog('page');
+    };
   }
 
   // The page mic's deadline ran out. If the site's mic permission is still
@@ -867,33 +902,21 @@
   // then give the recognizer a fresh deadline (Allow -> it starts; Never allow ->
   // it reports not-allowed). Otherwise the mic really is silent: time out.
   function holdPageDeadline(gen) {
-    const stale = () => gen !== recWatchGen || micListening || paused || !recording || recMode !== 'page';
-    let query = null;
-    try {
-      query = navigator.permissions.query({ name: 'microphone' });
-    } catch (e) {
-      /* no Permissions API: treat as not prompting */
-    }
-    Promise.resolve(query)
-      .catch(() => null)
-      .then((status) => {
-        if (stale()) return;
-        if (status && speechLib && speechLib.waitsOnPrompt(status.state)) {
-          micPermWatch = status;
-          status.onchange = () => {
-            if (!stale()) armRecWatchdog('page');
-          };
-          // a prompt nobody answers (Chrome's quiet chip, a background tab) still ends
-          recWatchdog = setTimeout(() => {
-            if (stale()) return;
-            stopRecognizer();
-            send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
-          }, cfg.pageMicPromptMaxMs);
-          return;
-        }
-        stopRecognizer();
-        send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
-      });
+    queryMicPerm().then((status) => {
+      if (stalePage(gen)) return;
+      if (status && speechLib && speechLib.waitsOnPrompt(status.state)) {
+        watchMicPrompt(gen, status);
+        // a prompt nobody answers (Chrome's quiet chip, a background tab) still ends
+        recWatchdog = setTimeout(() => {
+          if (stalePage(gen)) return;
+          stopRecognizer();
+          send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
+        }, cfg.pageMicPromptMaxMs);
+        return;
+      }
+      stopRecognizer();
+      send({ type: MSG.TRANSCRIBE_ERROR, error: 'start-timeout', src: 'page' });
+    });
   }
 
   function clearRecWatchdog() {

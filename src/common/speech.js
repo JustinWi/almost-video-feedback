@@ -7,8 +7,8 @@
  * The service worker decides when (see mic-triage.js pageFallback) and tells the
  * content script via REC_MODE. Every message it posts carries src: 'page'.
  *
- * Classic script -> globalThis.SCF_SPEECH; isPermissionError and waitsOnPrompt
- * are also exported for the Node unit tests.
+ * Classic script -> globalThis.SCF_SPEECH; isPermissionError, waitsOnPrompt and
+ * answersPrompt are also exported for the Node unit tests.
  */
 (function (root) {
   'use strict';
@@ -29,6 +29,16 @@
    */
   function waitsOnPrompt(permState) {
     return permState === 'prompt';
+  }
+
+  /**
+   * The site's mic permission changed while the page mic waited on Chrome's
+   * prompt. Was that the user answering it? Then the start-up deadline starts
+   * over from now: an Allow clicked just before the deadline must still get the
+   * full time for Web Speech to start (and a Block, the time to report it).
+   */
+  function answersPrompt(permState) {
+    return permState === 'granted' || permState === 'denied';
   }
 
   /**
@@ -134,7 +144,7 @@
     return { start, stop };
   }
 
-  const api = { isPermissionError, waitsOnPrompt, create };
+  const api = { isPermissionError, waitsOnPrompt, answersPrompt, create };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
