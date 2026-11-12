@@ -184,6 +184,15 @@
     if (!segs.length && openTranscriptPanel()) segs = await waitForSegments(10000);
     const title = videoTitle();
     if (!segs.length) return { ok: true, hasTranscript: false, segments: [], title };
+    // same guard as Loom: a scrape that read a control's label (or one repeated line)
+    // for every row, or stopped well short of the video, fails loudly instead of saving
+    const check = SCF.loomTimeline && SCF.loomTimeline.checkSegments;
+    if (check) {
+      const v = findVideo();
+      const verdict = check(segs, { durationMs: v && isFinite(v.duration) ? Math.round(v.duration * 1000) : 0 });
+      if (!verdict.ok) return { ok: false, error: verdict.reason === 'partial' ? 'transcript-partial' : 'transcript-unreadable', detail: verdict.reason, title };
+      segs = verdict.segments;
+    }
     return { ok: true, hasTranscript: true, segments: segs, title };
   }
 

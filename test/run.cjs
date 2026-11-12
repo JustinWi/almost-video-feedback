@@ -397,6 +397,9 @@ test('checkSegments refuses one line repeated for most cues, keeps real lines', 
   // short real transcripts and one-character CJK cues are fine
   assert.strictEqual(loomTimeline.checkSegments([{ ms: 0, text: 'Okay.' }, { ms: 1, text: 'Okay.' }, { ms: 2, text: 'Thanks, bye.' }]).ok, true);
   assert.strictEqual(loomTimeline.checkSegments([{ ms: 0, text: '你' }, { ms: 1, text: '好' }]).ok, true);
+  // a music-heavy YouTube video: "[Music]" repeats legitimately
+  const music = [0, 1, 2, 3, 4, 5].map((i) => ({ ms: i * 1000, text: i === 5 ? 'thanks for watching' : '[Music]' }));
+  assert.strictEqual(loomTimeline.checkSegments(music).ok, true);
 });
 
 test('checkSegments refuses a transcript that stops well before the video (partial list)', () => {

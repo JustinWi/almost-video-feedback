@@ -89,6 +89,8 @@
       let top = 0;
       for (const s of kept) {
         const k = s.text.trim().toLowerCase();
+        // YouTube's "[Music]" / "♪ ♪" sound tags repeat legitimately in a music-heavy video
+        if (/^[[(♪].*[\])♪]$/.test(k)) continue;
         const n = (counts.get(k) || 0) + 1;
         counts.set(k, n);
         if (n > top) top = n;
