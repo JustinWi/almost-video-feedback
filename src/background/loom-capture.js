@@ -24,7 +24,7 @@
   // video it jumps to, so it gets a much longer leash. adCheck: after each grab, ask
   // the page whether an ad popped up meanwhile (that frame is then retaken).
   const SITES = {
-    loom: { probe: MSG.LOOM_PROBE, seek: MSG.LOOM_SEEK, seekTimeoutMs: 4000, fallbackTitle: 'Loom video', adCheck: false },
+    loom: { probe: MSG.LOOM_PROBE, seek: MSG.LOOM_SEEK, seekTimeoutMs: 6000, probeTimeoutMs: 12000, fallbackTitle: 'Loom video', adCheck: false },
     youtube: { probe: MSG.YOUTUBE_PROBE, seek: MSG.YOUTUBE_SEEK, seekTimeoutMs: 210000, fallbackTitle: 'YouTube video', adCheck: true },
   };
   const AD_RETAKES = 3; // per target, frames thrown away because an ad started mid-grab
@@ -83,8 +83,8 @@
     const onProgress = a.onProgress || function () {};
     const site = SITES[a.kind] || SITES.loom;
 
-    const probe = await sendToTab(tabId, { type: site.probe }, site.seekTimeoutMs);
-    if (!probe || !probe.ok) return { frames: 0, segments: 0, error: (probe && probe.error) || 'probe-failed' };
+    const probe = await sendToTab(tabId, { type: site.probe }, site.probeTimeoutMs || site.seekTimeoutMs);
+    if (!probe || !probe.ok) return { frames: 0, segments: 0, error: (probe && probe.error) || 'probe-failed', detail: probe && probe.detail };
     if (!probe.hasTranscript) return { frames: 0, segments: 0, error: 'no-transcript' };
 
     const segments = probe.segments;
@@ -103,16 +103,43 @@
     let seq = 0;
     let lastHash = null;
     let retakes = 0;
+    let missed = 0; // targets with no picture: tab not in front, capture failed, or the player never got there
+    const saves = []; // frame downloads in flight
     let adBreaks = []; // reported by the page when it's put back (YouTube only)
     try {
       for (let i = 0; i < targets.length; i++) {
         const ms = targets[i];
         onProgress({ done: i, total: targets.length, phase: 'capturing' });
+        // captureVisibleTab grabs whatever tab is in front of the window: if the user
+        // switched tabs, a grab would save a picture of the wrong page (and the page's
+        // seek stalls, since a hidden tab gets no animation frames). Count it, skip it,
+        // and stop once most targets are lost: the import can't succeed any more.
+        const tabNow = await chrome.tabs.get(tabId).catch(() => null);
+        if (!tabNow || !tabNow.active) {
+          missed += 1;
+          if (missed * 2 > targets.length) break;
+          await delay(250);
+          continue;
+        }
         const seek = await sendToTab(tabId, { type: site.seek, ms }, site.seekTimeoutMs);
         if (seek && seek.error === 'ad-stuck') return { frames: seq, segments: segments.length, error: 'ad-stuck', adBreaks };
         await delay(settle);
+        // the tab may have gone behind during the seek: check again right before the grab
+        const tabThen = await chrome.tabs.get(tabId).catch(() => null);
+        if (!seek || seek.ok === false || !tabThen || !tabThen.active) {
+          missed += 1;
+          if (missed * 2 > targets.length) break;
+          continue;
+        }
         let dataUrl;
-        try { dataUrl = await chrome.tabs.captureVisibleTab(windowId, opts); } catch (e) { dataUrl = null; }
+        try { dataUrl = await chrome.tabs.captureVisibleTab(windowId, opts); } catch (e) {
+          dataUrl = null;
+          // Chrome allows ~2 captures a second; a fast run of cached seeks can trip it
+          if (/quota|MAX_CAPTURE/i.test(String(e && e.message))) {
+            await delay(700);
+            try { dataUrl = await chrome.tabs.captureVisibleTab(windowId, opts); } catch (e2) { dataUrl = null; }
+          }
+        }
         if (site.adCheck && dataUrl) {
           const now = await sendToTab(tabId, { type: site.seek, adCheck: true }, 2000);
           if (now && now.ad) {
@@ -122,13 +149,21 @@
           }
         }
         retakes = 0;
-        if (!dataUrl) continue; // tab not foreground / capture failed -> skip this target
-        const rect = seek && seek.ok ? seek.rect : null;
-        const dpr = seek && seek.ok ? (seek.dpr || 1) : 1;
+        if (!dataUrl) { // window minimized / capture failed -> skip this target
+          missed += 1;
+          if (missed * 2 > targets.length) break;
+          continue;
+        }
+        const rect = seek.rect || null;
+        const dpr = seek.dpr || 1;
         const blob = await cropToRect(dataUrl, rect, dpr, mime);
 
         const hash = await hashOf(blob);
-        if (hash && lastHash && imageHash.hammingDistance(lastHash, hash) <= threshold) continue; // unchanged -> cull
+        if (hash && lastHash && imageHash.hammingDistance(lastHash, hash) <= threshold) {
+          // unchanged -> cull; if the player never got there, that's a lost frame, not a still scene
+          if (seek.landed === false) missed += 1;
+          continue;
+        }
         if (hash) lastHash = hash;
 
         seq += 1;
@@ -137,7 +172,7 @@
           t: startedAt + ms, type: 'screenshot', seq, mime,
           trigger: TRIGGER.FRAME, url, title, element: null, selectionText: null, scrollY: null, hash: hash || null,
         });
-        if (dir && downloads && exporter) downloads.saveShot(dir, exporter.fileFor(seq), blob, mime).catch(() => {});
+        if (dir && downloads && exporter) saves.push(downloads.saveShot(dir, exporter.fileFor(seq), blob, mime).catch(() => {}));
       }
 
       // transcript events (final segments) on the same timeline
@@ -145,12 +180,19 @@
         if (s.text && s.text.trim()) await store.addEvent({ t: startedAt + s.ms, type: 'transcript', final: true, text: s.text.trim() });
       }
     } finally {
+      // every frame's download is registered before we return, so a failed import can find and delete them
+      await Promise.allSettled(saves);
       const back = await sendToTab(tabId, { type: site.seek, restore: true }, 1000); // un-mute, restore controls
       if (back && Array.isArray(back.ads)) adBreaks.splice(0, adBreaks.length, ...back.ads);
     }
     // every capture failed (tab hidden behind another / window minimized): say so
     // instead of saving a bundle with a transcript and no pictures
     if (seq === 0 && targets.length) return { frames: 0, segments: segments.length, error: 'no-frames', adBreaks };
+    // most targets gave no picture (tab sent behind another, window minimized, or a
+    // player that never moved): say so rather than save a 6-minute video as 1 frame
+    if (targets.length >= 4 && missed * 2 > targets.length) {
+      return { frames: seq, segments: segments.length, error: 'few-frames', missed, targets: targets.length, adBreaks };
+    }
     onProgress({ done: targets.length, total: targets.length, phase: 'done' });
     // lastMs = end of the video we covered, so the bundle's duration is meaningful
     const lastTarget = targets.length ? targets[targets.length - 1] : 0;

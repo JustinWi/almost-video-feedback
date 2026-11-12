@@ -58,7 +58,47 @@
     return targets;
   }
 
-  const api = { parseTimestamp, buildTargets };
+  // Words a scraper reads by mistake when it lands on a control instead of a caption
+  // (Loom 2026-11: a "Copy snippet" button beside every stamp gave a 29-line
+  // transcript of nothing but "Copy snippet").
+  const UI_LABEL = /^(copy snippet|copy|copy link|copy text|share|more actions|more|search|edit|delete|reply|react|like|comment|translate|download|show more|show less|jump to|play|pause)$/i;
+
+  /**
+   * Sanity-check scraped transcript segments before they become the transcript.
+   * Drops lines that are a UI label or hold no words; refuses the whole scrape when
+   * most lines were labels, one line repeats for most cues, or (given the video's
+   * length) the lines stop well before the video does (a partial list or a
+   * caption track still loading).
+   * @param {{ms:number, text:string}[]} segs
+   * @param {{durationMs?:number}} [opts]
+   * @returns {{ok:true, segments:object[]} | {ok:false, reason:string}}
+   */
+  function checkSegments(segs, opts) {
+    const all = (segs || []).filter((s) => s && typeof s.text === 'string');
+    const kept = all.filter((s) => {
+      const t = s.text.replace(/\s+/g, ' ').trim();
+      return t && !UI_LABEL.test(t) && /\p{L}/u.test(t);
+    });
+    if (!kept.length) return { ok: false, reason: all.length ? 'ui-labels' : 'no-words' };
+    if (all.length >= 3 && kept.length * 2 < all.length) return { ok: false, reason: 'ui-labels' };
+    const durationMs = (opts && opts.durationMs) || 0;
+    const lastMs = Math.max(...kept.map((s) => s.ms || 0));
+    if (durationMs >= 120000 && lastMs < durationMs * 0.4) return { ok: false, reason: 'partial' };
+    if (kept.length >= 5) {
+      const counts = new Map();
+      let top = 0;
+      for (const s of kept) {
+        const k = s.text.trim().toLowerCase();
+        const n = (counts.get(k) || 0) + 1;
+        counts.set(k, n);
+        if (n > top) top = n;
+      }
+      if (top * 2 > kept.length) return { ok: false, reason: 'repeated-line' };
+    }
+    return { ok: true, segments: kept };
+  }
+
+  const api = { parseTimestamp, buildTargets, checkSegments };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

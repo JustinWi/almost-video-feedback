@@ -506,7 +506,9 @@ async function deleteDownloadedFiles(dir) {
   for (const it of items || []) {
     if (!it || !it.filename || it.filename.replace(/\\/g, '/').indexOf(seg) === -1) continue;
     try {
-      await chrome.downloads.removeFile(it.id); // delete the file from disk
+      // removeFile only works on finished downloads; cancelling one in flight drops its partial file
+      if (it.state === 'in_progress') await chrome.downloads.cancel(it.id);
+      else await chrome.downloads.removeFile(it.id); // delete the file from disk
     } catch (e) {
       /* already moved/deleted */
     }
@@ -529,6 +531,9 @@ function importErrorText(code, label) {
   }
   if (code === 'ad-stuck') return 'An ad never finished, so the import stopped. Skip or finish the ad on the YouTube tab, then import again.';
   if (code === 'no-frames') return 'Couldn\'t grab any frames. Keep the ' + label + ' tab in front, in a window that isn\'t minimized, while it imports.';
+  if (code === 'few-frames') return 'Most frames couldn\'t be grabbed, so nothing was saved. Keep the ' + label + ' tab in front, in a window that isn\'t minimized, until the import finishes, then import again.';
+  if (code === 'transcript-unreadable') return 'Couldn\'t read this ' + label + ' video\'s transcript: the page gave labels or one repeated line instead of the words (' + label + ' may have changed its page). Nothing was saved. Please report this.';
+  if (code === 'transcript-partial') return 'Only the start of this ' + label + ' video\'s transcript could be read (' + label + ' can show just part of it to someone signed out), so nothing was saved. Sign in to ' + label + ' or let the page finish loading, then import again.';
   return 'Couldn\'t import this ' + label + ' video (' + code + '). Keep the ' + label + ' tab visible and try again.';
 }
 
@@ -567,6 +572,8 @@ async function importVideo(requestedTabId, opts) {
   }
 
   if (res && res.error) {
+    // frames already written to Downloads belong to a bundle that will never exist
+    await deleteDownloadedFiles(dir).catch(() => {});
     importing = false;
     setBadge('idle');
     applyActionMode();

@@ -372,6 +372,41 @@ test('parseTimestamp rejects junk', () => {
   assert.strictEqual(loomTimeline.parseTimestamp(null), null);
 });
 
+test('checkSegments refuses the 2026-11-12 "Copy snippet" x29 scrape', () => {
+  // the real broken import: every cue's text was Loom's copy button label
+  const times = [1, 12, 29, 50, 62, 75, 88, 101, 115, 128, 140, 152, 166, 180, 193, 205, 218, 230, 243, 256, 270, 283, 296, 310, 322, 335, 347, 355, 363];
+  const r = loomTimeline.checkSegments(times.map((s) => ({ ms: s * 1000, text: 'Copy snippet' })));
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, 'ui-labels');
+});
+
+test('checkSegments refuses one line repeated for most cues, keeps real lines', () => {
+  const rep = loomTimeline.checkSegments([1, 2, 3, 4, 5, 6].map((i) => ({ ms: i, text: i === 6 ? 'something else here' : 'Same caption text' })));
+  assert.strictEqual(rep.ok, false);
+  assert.strictEqual(rep.reason, 'repeated-line');
+  const good = loomTimeline.checkSegments([
+    { ms: 1000, text: "All right. I'd like to see if we could automate the refund" },
+    { ms: 12000, text: 'Copy snippet' }, // a stray label is dropped, not fatal
+    { ms: 13000, text: '/ 6:05' }, // the player's clock: no words
+    { ms: 29000, text: 'So the way the process works right now' },
+    { ms: 50000, text: 'Okay.' },
+  ]);
+  assert.strictEqual(good.ok, true);
+  assert.strictEqual(good.segments.map((s) => s.ms).join(','), '1000,29000,50000');
+  assert.strictEqual(loomTimeline.checkSegments([]).ok, false);
+  // short real transcripts and one-character CJK cues are fine
+  assert.strictEqual(loomTimeline.checkSegments([{ ms: 0, text: 'Okay.' }, { ms: 1, text: 'Okay.' }, { ms: 2, text: 'Thanks, bye.' }]).ok, true);
+  assert.strictEqual(loomTimeline.checkSegments([{ ms: 0, text: '你' }, { ms: 1, text: '好' }]).ok, true);
+});
+
+test('checkSegments refuses a transcript that stops well before the video (partial list)', () => {
+  // live Loom share page signed out: rows only up to 2:19 of a 6:05 video
+  const segs = [1, 12, 29, 50, 62, 75, 88, 101, 115, 128, 133, 139].map((s) => ({ ms: s * 1000, text: 'words at ' + s }));
+  assert.strictEqual(loomTimeline.checkSegments(segs, { durationMs: 365000 }).reason, 'partial');
+  assert.strictEqual(loomTimeline.checkSegments(segs.concat([{ ms: 350000, text: 'the end' }]), { durationMs: 365000 }).ok, true);
+  assert.strictEqual(loomTimeline.checkSegments(segs, {}).ok, true); // length unknown: no coverage check
+});
+
 test('buildTargets always includes t=0 and every segment time, sorted+unique', () => {
   const r = loomTimeline.buildTargets([9000, 9000, 2000], { floorMs: 15000, maxFrames: 300 });
   assert.deepStrictEqual(r, [0, 2000, 9000]);
