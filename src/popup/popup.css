@@ -109,6 +109,8 @@ button { font-family: inherit; cursor: pointer; border: none; border-radius: 9px
 .primary:hover { filter: brightness(1.08); }
 .primary:active { transform: scale(.985); }
 .primary.recording { background: linear-gradient(180deg, #f43f5e, #e11d48); }
+/* Start is red too (record = red); the ● / ■ in the label tells Start from Stop */
+.primary.start { background: linear-gradient(180deg, #f43f5e, #e11d48); }
 .primary.small { font-size: 12.5px; padding: 8px 10px; width: auto; }
 .primary:disabled { opacity: .6; cursor: default; }
 .secondary {
@@ -158,6 +160,16 @@ button { font-family: inherit; cursor: pointer; border: none; border-radius: 9px
 .rc-btn.armed { background: #9f1239; border-color: #be123c; color: #fff; }
 
 footer { display: flex; align-items: center; gap: 8px; justify-content: center; }
+
+/* "or press ⌘⇧Y on any page" under Start recording */
+.hotkey-hint { font-size: 11.5px; text-align: center; margin-top: -4px; }
+.hotkey-hint kbd {
+  font-family: inherit; font-size: 11px; color: #e2e8f0;
+  background: #1e293b; border: 1px solid #334155; border-bottom-width: 2px; border-radius: 5px; padding: 0 5px;
+}
+/* what a click on the toolbar icon does, with a one-click switch */
+.click-mode { font-size: 11.5px; text-align: center; border-top: 1px solid #1e293b; padding-top: 8px; }
+.click-mode .link { font-size: 11.5px; padding: 0 2px; }
 .link { background: none; color: #818cf8; font-weight: 600; font-size: 12px; padding: 2px 4px; }
 .link:hover { text-decoration: underline; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

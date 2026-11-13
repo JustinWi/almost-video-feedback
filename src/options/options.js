@@ -19,7 +19,8 @@
     { id: 'circleMinPathPx', path: 'circleMinPathPx', type: 'int' },
     { id: 'circleRatio', path: 'circleRatio', type: 'float' },
     { id: 'showOverlay', path: 'showOverlay', type: 'checkbox' },
-    { id: 'clickStartsRecording', path: 'clickStartsRecording', type: 'checkbox' },
+    // two radios over one boolean: 'Start recording straight away' (true) / 'Open the menu' (false)
+    { id: 'clickStartsRecording', path: 'clickStartsRecording', type: 'checkbox', pair: 'clickOpensMenu' },
     { id: 'updateCheck', path: 'updateCheck', type: 'checkbox' },
     { id: 't_start', path: 'triggers.start', type: 'checkbox' },
     { id: 't_navigation', path: 'triggers.navigation', type: 'checkbox' },
@@ -52,6 +53,10 @@
       const val = getPath(settings, f.path);
       if (f.type === 'checkbox') el.checked = !!val;
       else el.value = val == null ? '' : val;
+      if (f.pair) {
+        const other = document.getElementById(f.pair);
+        if (other) other.checked = !val;
+      }
     }
   }
 
@@ -127,6 +132,32 @@
         status.textContent = "Couldn't check (offline?) — will retry daily.";
       }
     });
+  });
+
+  // name the real start/stop key (people can rebind it in Chrome)
+  try {
+    chrome.commands.getAll((cmds) => {
+      void chrome.runtime.lastError;
+      const c = (cmds || []).find((x) => x.name === 'toggle-recording');
+      const note = document.getElementById('clickShortcutNote');
+      if (note && c && c.shortcut) {
+        note.textContent = 'The shortcut ' + c.shortcut + ' always starts or stops a recording straight away, whichever you pick here.';
+      }
+    });
+  } catch (e) {
+    /* keep the generic wording */
+  }
+
+  // the popup's "Change" link can flip the icon setting while this page is open
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.settings || !changes.settings.newValue) return;
+    const v = changes.settings.newValue.clickStartsRecording !== false;
+    const a = document.getElementById('clickStartsRecording');
+    const b = document.getElementById('clickOpensMenu');
+    if (a && b && a.checked !== v) {
+      a.checked = v;
+      b.checked = !v;
+    }
   });
 
   cfg.load().then(populate);

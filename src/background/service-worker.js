@@ -479,7 +479,17 @@ async function discardRecording(id) {
   } catch (e) {
     /* ignore */
   }
-  await deleteDownloadedFiles(rec && (rec.dir || rec.folderPath));
+  // Removing the files from Chrome's download list can pop its download bubble open
+  // over the menu, which closes the menu. Hide the bubble while deleting, and give it
+  // back only if no recording, save or import still wants it hidden.
+  self.SCF.downloads.setDownloadUi(false);
+  try {
+    await deleteDownloadedFiles(rec && (rec.dir || rec.folderPath));
+  } finally {
+    setTimeout(() => {
+      if (!(session && session.active) && !stopping && !importing) self.SCF.downloads.setDownloadUi(true);
+    }, 1500);
+  }
   if (lastResult && lastResult.id === id) {
     lastResult = null;
     try {

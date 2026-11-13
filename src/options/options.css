@@ -28,7 +28,11 @@ input:focus, select:focus { outline: none; border-color: #6366f1; }
   display: flex; align-items: center; gap: 8px; font-weight: 500;
 }
 .grid .field { margin: 4px 0; }
-input[type="checkbox"] { width: 16px; height: 16px; accent-color: #6366f1; }
+input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-color: #6366f1; }
+/* two-line radio choices (icon click): keep the button level with the bold first line */
+.inline input[type="radio"] { align-self: flex-start; margin-top: 2px; flex: 0 0 auto; }
+input[name="clickAction"] + span { line-height: 1.45; }
+label.inline + label.inline { margin-top: 10px; }
 
 .btn {
   background: #1e293b; border: 1px solid #334155; color: #e2e8f0;

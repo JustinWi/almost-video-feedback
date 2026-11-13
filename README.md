@@ -171,8 +171,9 @@ the only `fetch` is of a local `data:` URL. Full
 
 1. Open the tab you want to review (any normal `http`/`https` page, including `localhost`).
 2. Click the toolbar button — by default it **starts recording immediately** (no menu), so you're
-   talking in one click. (Prefer to see the menu first? Turn off *"Clicking the toolbar icon starts
-   a recording"* in Settings.) You can also press the hotkey.
+   talking in one click. Prefer to see your recordings first? In Settings, under *"When I click the
+   Almost Video Feedback icon"*, pick **Open the menu** (or click **Change** at the bottom of the
+   menu); then press **Start recording** when you're ready. The hotkey always records straight away.
 3. Talk through your feedback while you interact with the page. A translucent bar at the bottom
    shows the live transcript and flashes "📸 Screenshot N" when one is captured.
 4. Press the hotkey or the **📸 Shot** button any time you want to force a capture.
@@ -225,7 +226,7 @@ The library keeps the most recent 40 sessions (older ones are pruned automatical
 ### Settings
 
 Right-click the extension → **Options** (or the popup's **Settings** link) to tune: whether clicking
-the toolbar icon starts a recording instantly, transcription language, which triggers are active,
+the toolbar icon starts a recording straight away or opens the menu first, transcription language, which triggers are active,
 capture format (PNG/JPEG), the dedup aggressiveness, how **click** screenshots dedup (smart /
 always / global), whether **on-page drawing** is enabled, the screenshot limit (default 1000), and the timing thresholds
 for scroll/dwell/circle detection.

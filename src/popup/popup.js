@@ -178,7 +178,7 @@
       pill.textContent = 'Recording';
       $('live').hidden = false;
       $('shots').textContent = (state.screenshots || 0) + ' shots';
-      primary.textContent = 'Stop recording';
+      primary.textContent = '■ Stop recording';
       primary.className = 'primary recording';
       primary.disabled = false;
       $('force').hidden = false;
@@ -198,14 +198,63 @@
       pill.className = 'pill idle';
       pill.textContent = 'Idle';
       $('live').hidden = true;
-      primary.textContent = 'Start recording';
-      primary.className = 'primary';
+      primary.textContent = '● Start recording';
+      primary.className = 'primary start';
       primary.disabled = false;
       $('force').hidden = true;
       renderResult();
       $('recent').hidden = recentCount === 0;
     }
+    renderClickHelp();
   }
+
+  // ---- what a click on the toolbar icon does (+ the start/stop shortcut) ----
+  let hotkey = ''; // e.g. "⇧⌘Y"; empty when the user removed the shortcut
+  let clickStarts = null; // settings.clickStartsRecording; null until loaded
+  function renderClickHelp() {
+    const idle = !state.recording && !state.saving;
+    $('hotkey-hint').hidden = !(idle && hotkey);
+    if (hotkey) $('hotkey-key').textContent = hotkey;
+    // on a Loom / YouTube page the icon always opens this menu, so "starts a recording" would be wrong here
+    const show = idle && clickStarts !== null && !(clickStarts && videoTab);
+    $('click-mode').hidden = !show;
+    if (show) {
+      $('click-mode-text').textContent = clickStarts
+        ? 'Clicking the icon starts a recording'
+        : 'Clicking the icon opens this menu';
+      $('click-mode-change').title = clickStarts
+        ? 'Make a click on the icon open this menu instead'
+        : 'Make a click on the icon start a recording straight away';
+    }
+  }
+  async function loadClickHelp() {
+    try {
+      const s = await self.SCF_CONFIG.load();
+      clickStarts = s.clickStartsRecording !== false;
+    } catch (e) {
+      clickStarts = null;
+    }
+    try {
+      const cmds = await chrome.commands.getAll();
+      const c = (cmds || []).find((x) => x.name === 'toggle-recording');
+      hotkey = (c && c.shortcut) || '';
+    } catch (e) {
+      hotkey = '';
+    }
+    renderClickHelp();
+  }
+  $('click-mode-change').addEventListener('click', async () => {
+    if (clickStarts === null) return;
+    const next = !clickStarts;
+    try {
+      // the service worker hears the settings change and swaps the icon's behavior
+      await self.SCF_CONFIG.save({ clickStartsRecording: next });
+      clickStarts = next;
+    } catch (e) {
+      /* leave the line as it was */
+    }
+    renderClickHelp();
+  });
 
   // "no ads", "1 ad skipped", "2 ads (1 skipped, 1 waited out)"
   function adSummary(ads) {
@@ -398,6 +447,9 @@
   const importBusy = () => !$('import-progress').hidden; // an import started from this popup
 
   async function load() {
+    // also on the early return below: the menu that opens after a save is where
+    // click-to-record users find out the icon can open this menu instead
+    loadClickHelp();
     const s = await send({ type: MSG.GET_STATE });
     if (s) {
       state.recording = s.recording;
@@ -427,7 +479,7 @@
     }
     render();
     loadRecent();
-    detectVideo();
+    detectVideo().then(renderClickHelp);
   }
 
   // primary button

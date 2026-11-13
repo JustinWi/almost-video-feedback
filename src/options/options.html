@@ -86,8 +86,10 @@
       </section>
 
       <section>
-        <h2>Toolbar</h2>
-        <label class="inline"><input type="checkbox" id="clickStartsRecording" /> Clicking the toolbar icon starts a recording immediately (no menu when idle — fastest). The menu still opens when you click to stop.</label>
+        <h2>When I click the Almost Video Feedback icon</h2>
+        <label class="inline"><input type="radio" name="clickAction" id="clickStartsRecording" /> <span><strong>Start recording straight away</strong><br /><span class="muted">Fastest. The menu opens when you stop.</span></span></label>
+        <label class="inline"><input type="radio" name="clickAction" id="clickOpensMenu" /> <span><strong>Open the menu</strong><br /><span class="muted">See and delete recordings, then press Start recording when you're ready.</span></span></label>
+        <p class="muted" id="clickShortcutNote">The start/stop shortcut always starts or stops a recording straight away, whichever you pick here.</p>
       </section>
 
       <section>

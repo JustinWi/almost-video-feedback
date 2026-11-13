@@ -36,7 +36,8 @@
         <div class="hint muted">Talk through your feedback. Click, select text, scroll, or circle the mouse around things — screenshots are captured automatically.</div>
       </div>
 
-      <button id="primary" class="primary">Start recording</button>
+      <button id="primary" class="primary start">● Start recording</button>
+      <div id="hotkey-hint" class="hotkey-hint muted" hidden>or press <kbd id="hotkey-key"></kbd> on any page</div>
       <button id="force" class="secondary" hidden>📸 Force screenshot</button>
       <div id="import-box" class="import-box" hidden>
         <button id="import-video" class="secondary">🎬 Import this video</button>
@@ -74,6 +75,9 @@
         <span class="muted">·</span>
         <button id="shortcuts" class="link">Hotkeys</button>
       </footer>
+      <div id="click-mode" class="click-mode muted" hidden>
+        <span id="click-mode-text"></span> · <button id="click-mode-change" class="link">Change</button>
+      </div>
     </div>
     <script src="../common/protocol.js"></script>
     <script src="../common/config.js"></script>
