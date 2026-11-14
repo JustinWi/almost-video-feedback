@@ -50,6 +50,11 @@
       .note { margin-top: 4px; }
       /* the escape hatch for edited files: deliberately quieter than the green button */
       button.anyway { font-size: 12.5px; font-weight: 500; padding: 5px 11px; margin-top: 6px; background: transparent; }
+      .auto-progress { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+      .auto-track { height: 8px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+      .auto-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #22c55e, #15803d); transition: width .25s ease; }
+      #auto-msg.err { color: #fecaca; }
+      .byhand { font-size: 15px; margin: 22px 0 8px; }
     </style>
   </head>
   <body>
@@ -74,7 +79,34 @@
           </div>
         </div>
 
+        <div id="auto" class="card" hidden>
+          <div class="step">
+            <div class="n">⟳</div>
+            <div class="t">
+              <b id="auto-title">First time only: show the extension where its folder is</b>
+              <span class="muted" id="auto-text">Pick the folder you loaded the extension from on
+                <code>chrome://extensions</code> (the one with <code>manifest.json</code> inside), then click
+                <b>Edit files</b> when Chrome asks. After this, <b>Update</b> in the toolbar menu does everything.</span><br />
+              <button id="auto-go" class="green">Pick the folder and update</button>
+              <div id="auto-progress" class="auto-progress" hidden>
+                <div class="auto-track"><div id="auto-fill" class="auto-fill"></div></div>
+                <div id="auto-label" class="muted"></div>
+              </div>
+              <div id="auto-msg" class="muted note" hidden></div>
+              <div id="auto-git" class="note" hidden>
+                <b>This folder is a git copy.</b>
+                <span class="muted">Updating writes over files git keeps track of, so they'll show up as changed.
+                  If you work on the code here, use <code>git pull</code> instead.</span><br />
+                <label class="muted"><input type="checkbox" id="auto-git-remember" /> Don't ask again on this computer</label><br />
+                <button id="auto-git-go" class="green">Update anyway</button>
+                <button id="auto-git-cancel" class="anyway">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="howto">
+        <h2 id="byhand-title" class="byhand" hidden>Or update by hand</h2>
         <p class="muted" id="disk-line" hidden>Your extension folder still has v<span id="disk">?</span>.
           Put the new files in it (steps below, or <code>git pull</code> for a git clone).
           This page notices within a few seconds and switches to a one-click <b>Update now</b>.</p>
@@ -142,6 +174,8 @@
     <script src="../common/config.js"></script>
     <script src="../common/update-check.js"></script>
     <script src="../common/folder-check.js"></script>
+    <script src="../common/zip.js"></script>
+    <script src="../common/self-update.js"></script>
     <script src="update.js"></script>
   </body>
 </html>

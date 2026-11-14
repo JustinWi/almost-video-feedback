@@ -24,8 +24,34 @@
 
       <div id="update-banner" class="banner update" hidden>
         <span id="update-text">Update available</span>
-        <button id="update-go">Update</button>
-        <button id="update-anyway" class="anyway" hidden>Reload anyway</button>
+        <div class="ub-actions">
+          <button id="update-notes" class="anyway" aria-expanded="false" aria-controls="update-notes-box">What's new</button>
+          <button id="update-go">Update</button>
+          <button id="update-anyway" class="anyway" hidden>Reload anyway</button>
+        </div>
+        <div id="update-progress" class="ub-progress" hidden>
+          <div class="ub-track"><div id="update-fill" class="ub-fill"></div></div>
+          <div id="update-label" class="ub-label"></div>
+        </div>
+        <div id="update-msg" class="ub-msg" hidden></div>
+        <div id="update-git" class="ub-msg" hidden>
+          <b>This folder is a git copy.</b> Updating writes over files git keeps track of, so they'll show up
+          as changed. If you work on the code here, use <code>git pull</code> instead.
+          <label class="ub-check"><input type="checkbox" id="update-git-remember" /> Don't ask again on this computer</label>
+          <div class="ub-actions">
+            <button id="update-git-cancel" class="anyway">Cancel</button>
+            <button id="update-git-go">Update anyway</button>
+          </div>
+        </div>
+        <div id="update-notes-box" class="notes" hidden></div>
+      </div>
+
+      <div id="updated-banner" class="banner update done" hidden>
+        <span id="updated-text">✓ Updated</span>
+        <div class="ub-actions">
+          <button id="updated-notes" class="anyway" aria-expanded="false" aria-controls="updated-notes-box">What's new</button>
+        </div>
+        <div id="updated-notes-box" class="notes" hidden></div>
       </div>
 
       <div id="live" class="live" hidden>
@@ -83,6 +109,9 @@
     <script src="../common/config.js"></script>
     <script src="../common/update-check.js"></script>
     <script src="../common/folder-check.js"></script>
+    <script src="../common/zip.js"></script>
+    <script src="../common/release-notes.js"></script>
+    <script src="../common/self-update.js"></script>
     <script src="../common/video-source.js"></script>
     <script src="../background/exporter.js"></script>
     <script src="../background/session-store.js"></script>

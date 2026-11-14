@@ -46,12 +46,155 @@
     $('next2').textContent = step.version;
     $('ready').hidden = !ready;
     $('howto').hidden = ready;
+    // the one-click update leads; the copy-by-hand steps stay below it as the fallback
+    const auto = !ready && !!su && !!(upd && upd.zipUrl);
+    $('auto').hidden = !auto;
+    $('byhand-title').hidden = !auto;
+    if (auto) prepareAuto();
     const diskKnown = !ready && u.onDisk;
     $('disk-line').hidden = !diskKnown;
     if (diskKnown) $('disk').textContent = u.onDisk;
-    if (!ready) pollTimer = setTimeout(refresh, POLL_MS);
-    else watchCopy();
+    if (!ready && !autoBusy) pollTimer = setTimeout(refresh, POLL_MS);
+    else if (ready) watchCopy();
   }
+
+  // ---- one-click update: pick the folder once, then download + check + write + restart ----
+  const su = self.SCF.selfUpdate;
+  const GIT_OK_KEY = 'selfUpdateGitOk';
+  let autoBusy = false;
+  let prepared = false;
+
+  function reasonText(reason) {
+    if (reason === 'not-extension') return "That folder isn't Almost Video Feedback: there's no manifest.json for it inside.";
+    if (reason === 'other-copy') {
+      return 'That folder is a copy of Almost Video Feedback, but not the one Chrome is running. To find the right one, open chrome://extensions, click Details on the Almost Video Feedback card and look under "Source".';
+    }
+    if (reason === 'no-permission') return "Chrome didn't give permission to change that folder.";
+    return '';
+  }
+  function autoMsg(text, isErr) {
+    const m = $('auto-msg');
+    m.textContent = text || '';
+    m.hidden = !text;
+    m.classList.toggle('err', !!isErr);
+  }
+  function autoText(title, text, button) {
+    $('auto-title').textContent = title;
+    $('auto-text').textContent = text;
+    $('auto-go').textContent = button;
+  }
+  function pickMode() {
+    autoText(
+      'First time only: show the extension where its folder is',
+      'Pick the folder you loaded the extension from on chrome://extensions (the one with manifest.json inside), then click Edit files when Chrome asks. After this, Update in the toolbar menu does everything.',
+      'Pick the folder and update'
+    );
+  }
+  // word the card for what the click will need: a folder pick, Chrome's OK, or nothing
+  async function prepareAuto() {
+    if (prepared) return;
+    prepared = true;
+    const dir = await su.loadFolder();
+    if (!dir) return pickMode();
+    if (!(await su.hasPermission(dir, false))) {
+      return autoText(
+        'Chrome needs your OK to update the files',
+        'Click the button, then Allow (or Edit files) in the box Chrome shows. The update then runs by itself and the menu reopens on the new version.',
+        'Allow and update'
+      );
+    }
+    const f = await su.checkFolder(dir);
+    if (!f.ok) {
+      pickMode();
+      return autoMsg(reasonText(f.reason) + ' Pick the right folder.', true);
+    }
+    autoText('Ready to update', 'One click. The progress shows here, then the extension restarts and the menu opens on the new version.', 'Update');
+  }
+
+  function autoProgress(ev, version) {
+    const t = su.progressText(ev, version);
+    $('auto-progress').hidden = false;
+    $('auto-fill').style.width = t.pct + '%';
+    $('auto-label').textContent = t.label;
+  }
+  async function isBusy() {
+    const s = await send({ type: MSG.GET_STATE });
+    return !!(s && (s.recording || s.saving || s.busy));
+  }
+
+  async function autoGo(gitOk) {
+    const target = upd;
+    if (autoBusy || !target || !target.zipUrl) return;
+    autoBusy = true;
+    clearTimeout(pollTimer);
+    $('auto-go').disabled = true;
+    $('auto-git').hidden = true;
+    autoMsg('');
+    let restarting = false;
+    try {
+      if (await isBusy()) return autoMsg('A recording or video import is still running or saving. Let it finish, then click again.', true);
+      let dir = await su.loadFolder();
+      let f = null;
+      if (dir && (await su.hasPermission(dir, true))) f = await su.checkFolder(dir);
+      if (!f || !f.ok) {
+        if (dir && !f) {
+          // Chrome's OK was refused or dismissed; the click it came from is used up
+          pickMode();
+          return autoMsg("Chrome didn't give permission. Click the button again and pick the folder.", true);
+        }
+        try {
+          dir = await window.showDirectoryPicker({ id: 'avf-extension-folder', mode: 'readwrite', startIn: 'documents' });
+        } catch (e) {
+          if (e && e.name === 'AbortError') return autoMsg('No folder picked. Click the button to try again.');
+          pickMode();
+          return autoMsg('Click the button once more to pick the folder.', true);
+        }
+        f = await su.checkFolder(dir);
+        if (!f.ok) return autoMsg(reasonText(f.reason) + ' Click the button to pick another folder.', true);
+        await su.saveFolder(dir);
+      }
+      if (f.git && !gitOk) {
+        let remembered = false;
+        try {
+          remembered = !!(await chrome.storage.local.get(GIT_OK_KEY))[GIT_OK_KEY];
+        } catch (e) { /* ask */ }
+        if (!remembered) {
+          $('auto-git').hidden = false;
+          return;
+        }
+      }
+      autoProgress({ phase: 'download', done: 0, total: 0 }, target.version);
+      const r = await su.updateTo({ dir, target, isBusy, onProgress: (ev) => autoProgress(ev, target.version) });
+      if (r.ok) {
+        restarting = true; // this page closes as the extension restarts
+        return;
+      }
+      $('auto-progress').hidden = true;
+      autoMsg(r.message, !r.pending);
+    } catch (e) {
+      autoMsg('The update stopped: ' + ((e && e.message) || 'unknown error') + '.', true);
+    } finally {
+      if (!restarting) {
+        autoBusy = false;
+        $('auto-go').disabled = false;
+        prepared = false;
+        refresh();
+      }
+    }
+  }
+
+  $('auto-go').addEventListener('click', () => autoGo(false));
+  $('auto-git-go').addEventListener('click', async () => {
+    if ($('auto-git-remember').checked) {
+      try {
+        await chrome.storage.local.set({ [GIT_OK_KEY]: true });
+      } catch (e) { /* ask again next time */ }
+    }
+    autoGo(true);
+  });
+  $('auto-git-cancel').addEventListener('click', () => {
+    $('auto-git').hidden = true;
+  });
 
   // every folder check goes through here, so a mismatch that stops changing (edited
   // files, not a copy) is seen whichever button or poll looked last

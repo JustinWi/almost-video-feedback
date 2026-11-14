@@ -123,7 +123,56 @@
     return new Blob([buildZipBytes(resolved)], { type: 'application/zip' });
   }
 
-  const api = { crc32, buildZipBytes, buildZip };
+  // ---- reading (the self-update unpacks the release zip) ----
+
+  // Pure: list a zip's entries from its central directory.
+  // -> [{ name, method, crc, size, data }] where data is still compressed for method 8.
+  function readZipEntries(bytes) {
+    const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 22 - 65535); i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw new Error('not a zip file');
+    const count = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    const dec = new TextDecoder();
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) throw new Error('damaged zip (central directory)');
+      const method = dv.getUint16(p + 10, true);
+      const crc = dv.getUint32(p + 16, true);
+      const csize = dv.getUint32(p + 20, true);
+      const size = dv.getUint32(p + 24, true);
+      const nlen = dv.getUint16(p + 28, true);
+      const xlen = dv.getUint16(p + 30, true);
+      const clen = dv.getUint16(p + 32, true);
+      const off = dv.getUint32(p + 42, true);
+      const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+      if (off + 30 > u8.length || dv.getUint32(off, true) !== 0x04034b50) throw new Error('damaged zip (' + name + ')');
+      const start = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+      if (start + csize > u8.length) throw new Error('damaged zip (' + name + ' is cut short)');
+      out.push({ name, method, crc, size, data: u8.subarray(start, start + csize) });
+      p += 46 + nlen + xlen + clen;
+    }
+    return out;
+  }
+
+  // An entry's real bytes: STORE as-is, DEFLATE through the browser's own decompressor.
+  async function entryBytes(e) {
+    if (e.method === 0) return e.data;
+    if (e.method === 8 && typeof DecompressionStream !== 'undefined') {
+      const s = new Blob([e.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return new Uint8Array(await new Response(s).arrayBuffer());
+    }
+    throw new Error('unsupported compression in ' + e.name);
+  }
+
+  const api = { crc32, buildZipBytes, buildZip, readZipEntries, entryBytes };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

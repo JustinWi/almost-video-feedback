@@ -1216,6 +1216,29 @@ chrome.runtime.onInstalled.addListener(() => {
 recoverPromise = recover();
 recoverPromise.then(applyActionMode);
 
+// One-click update: the menu (or update page) wrote the new files and restarted the
+// extension. Now running the new version, reopen the menu so the person sees
+// "✓ Updated to vX" without hunting for it. Only once, and only for a fresh update.
+(async () => {
+  try {
+    const KEY = 'selfUpdate';
+    const s = (await chrome.storage.local.get(KEY))[KEY];
+    if (!s || s.state !== 'done' || Date.now() - (s.at || 0) > 5 * 60 * 1000) return;
+    if (s.to !== chrome.runtime.getManifest().version) return; // still old: the menu explains
+    await chrome.storage.local.set({ [KEY]: Object.assign({}, s, { state: 'installed' }) });
+    if (recoverPromise) await recoverPromise;
+    // with "click starts a recording" the icon has no menu while idle: attach it for
+    // this one opening, then put the person's setting back
+    await chrome.action.setPopup({ popup: 'src/popup/popup.html' });
+    setTimeout(() => {
+      openPopup();
+      setTimeout(applyActionMode, 1500);
+    }, 600); // give the new worker a moment before the menu asks it for state
+  } catch (e) {
+    /* the menu shows the result next time it opens */
+  }
+})();
+
 // daily update check (alarm + boot catch-up); when its state changes, repaint
 // the idle badge and tell any open popup — never while a session owns the badge
 self.SCF.updater.init({

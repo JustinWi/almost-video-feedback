@@ -1002,6 +1002,194 @@ atest('folderCheck.check: refuses half-written or still-landing copies, waits ou
   delete global.fetch;
 });
 
+// ---- what's new: release notes between two versions ----
+const releaseNotes = require('../src/common/release-notes.js');
+
+test('release notes: list items become plain points (bold, links and code marks gone)', () => {
+  const body = '**Click the icon to see your recordings.**\n\n- **New choice:** pick [Open the menu](https://x.y) here.\n* The `⌘⇧Y` shortcut records\n  - a sub-point is left out\n\nUpdate: download the zip below.';
+  assert.deepStrictEqual(releaseNotes.bodyToPoints(body), ['New choice: pick Open the menu here.', 'The ⌘⇧Y shortcut records']);
+});
+
+test('release notes: a body without a list gives its paragraphs, minus headings and the how-to line', () => {
+  const body = '## Fixes\n\nLoom imports read every line again.\n\nUpdate: copy the zip over your folder.';
+  assert.deepStrictEqual(releaseNotes.bodyToPoints(body), ['Loom imports read every line again.']);
+  assert.deepStrictEqual(releaseNotes.bodyToPoints(''), []);
+});
+
+test('release notes: only versions newer than the running one, newest first, drafts left out', () => {
+  const rel = (tag, extra) => Object.assign({ tag_name: tag, body: '- point ' + tag, html_url: 'u/' + tag, published_at: '2026-11-1' }, extra);
+  const list = [rel('v0.10.11'), rel('v0.10.14'), rel('v0.10.13', { draft: true }), rel('v0.10.12'), rel('v0.10.15', { prerelease: true }), rel('nightly')];
+  const out = releaseNotes.notesBetween(list, '0.10.11');
+  assert.deepStrictEqual(out.map((n) => n.version), ['0.10.14', '0.10.12']);
+  assert.deepStrictEqual(out[0].points, ['point v0.10.14']);
+  assert.strictEqual(out[0].url, 'u/v0.10.14');
+  assert.deepStrictEqual(releaseNotes.notesBetween(list, '0.10.11', '0.10.12').map((n) => n.version), ['0.10.12']);
+});
+
+test('release notes: the list address comes from the latest-release address', () => {
+  assert.strictEqual(
+    releaseNotes.listUrl('https://api.github.com/repos/JustinWi/almost-video-feedback/releases/latest'),
+    'https://api.github.com/repos/JustinWi/almost-video-feedback/releases?per_page=30'
+  );
+});
+
+// ---- zip reading ----
+test('zip: readZipEntries reads back what buildZipBytes wrote', () => {
+  const enc = (s) => new Uint8Array(Buffer.from(s));
+  const bytes = zip.buildZipBytes([{ name: 'a/one.txt', data: enc('hello') }, { name: 'a/b/two.json', data: enc('{"x":1}') }]);
+  const got = zip.readZipEntries(bytes);
+  assert.deepStrictEqual(got.map((e) => [e.name, e.method, Buffer.from(e.data).toString()]), [
+    ['a/one.txt', 0, 'hello'],
+    ['a/b/two.json', 0, '{"x":1}'],
+  ]);
+  assert.throws(() => zip.readZipEntries(enc('not a zip at all, just text padding it out')), /not a zip/);
+});
+
+atest('zip: entryBytes inflates a DEFLATE entry', async () => {
+  const raw = require('zlib').deflateRawSync(Buffer.from('compressed text '.repeat(20)));
+  const out = await zip.entryBytes({ name: 'x', method: 8, data: new Uint8Array(raw) });
+  assert.strictEqual(Buffer.from(out).toString(), 'compressed text '.repeat(20));
+});
+
+// ---- one-click update ----
+const selfUpdate = require('../src/common/self-update.js');
+const sha = (s) => require('crypto').createHash('sha256').update(s).digest('hex');
+
+test('self-update: only paths inside the release folder are accepted', () => {
+  assert.strictEqual(selfUpdate.stripTop('almost-video-feedback/src/a.js'), 'src/a.js');
+  assert.strictEqual(selfUpdate.stripTop('other/src/a.js'), null);
+  assert.deepStrictEqual(
+    ['src/a.js', 'manifest.json', '../x', 'a/../b', '/etc/x', 'a\\b', '', 'a//b'].map(selfUpdate.safePath),
+    [true, true, false, false, false, false, false, false]
+  );
+});
+
+test('self-update: a download passes only when every file matches its list', () => {
+  const listing = { version: '0.10.13', files: { 'manifest.json': sha('m'), 'src/a.js': sha('a') } };
+  const good = { 'manifest.json': sha('m'), 'src/a.js': sha('a') };
+  assert.deepStrictEqual(selfUpdate.verifyRelease(listing, good, '0.10.13', '0.10.13'), { ok: true, problems: [] });
+  const bad = selfUpdate.verifyRelease(listing, { 'manifest.json': sha('m'), 'src/a.js': sha('tampered'), 'src/extra.js': sha('e') }, '0.10.13', '0.10.13');
+  assert.strictEqual(bad.ok, false);
+  assert.deepStrictEqual(bad.problems, ["Doesn't match the release's file list: src/a.js", 'In the download but not on its file list: src/extra.js']);
+  assert.match(selfUpdate.verifyRelease(listing, { 'manifest.json': sha('m') }, '0.10.13', '0.10.13').problems[0], /Missing from the download: src\/a\.js/);
+  assert.match(selfUpdate.verifyRelease(listing, good, '0.10.14', '0.10.13').problems[0], /is v0\.10\.13, not v0\.10\.14/);
+  assert.strictEqual(selfUpdate.verifyRelease(null, good, '0.10.13', '0.10.13').ok, false);
+  assert.strictEqual(selfUpdate.verifyRelease({ version: '1.0.0', files: { '../evil': 'x' } }, { '../evil': 'x' }, '1.0.0', '1.0.0').ok, false);
+});
+
+test('self-update: manifest.json is written last, the list just before it, and only listed files are removed', () => {
+  const next = { files: { 'src/b.js': 1, 'manifest.json': 1, 'src/a.js': 1 } };
+  const old = { files: { 'src/a.js': 1, 'src/gone.js': 1, 'manifest.json': 1 } };
+  assert.deepStrictEqual(selfUpdate.planWrites(next, old), {
+    write: ['src/a.js', 'src/b.js', 'release-files.json', 'manifest.json'],
+    remove: ['src/gone.js'],
+  });
+  assert.deepStrictEqual(selfUpdate.planWrites(next, null).remove, []); // a git clone: delete nothing
+});
+
+test('self-update: every failure says what happened and that the old version is still running', () => {
+  assert.match(selfUpdate.describeError({ stage: 'download', message: 'GitHub answered 404' }, '0.10.12'), /^Couldn't download .*GitHub answered 404.*still on v0\.10\.12\.$/);
+  assert.match(selfUpdate.describeError({ stage: 'check', message: 'Missing from the download: src/a.js' }, '0.10.12'), /Nothing in your folder was changed/);
+  assert.match(selfUpdate.describeError({ stage: 'write', path: 'src/x.js' }, '0.10.12'), /didn't let me save src\/x\.js\. I put back/);
+});
+
+// an in-memory folder that behaves like a File System Access directory handle
+function memFolder(files, failOn) {
+  const nf = () => Object.assign(new Error('not found'), { name: 'NotFoundError' });
+  const at = (prefix) => ({
+    async getDirectoryHandle(name, o) {
+      const p = prefix + name + '/';
+      if (!Object.keys(files).some((k) => k.indexOf(p) === 0) && !(o && o.create)) throw nf();
+      return at(p);
+    },
+    async getFileHandle(name, o) {
+      const p = prefix + name;
+      if (!(p in files) && !(o && o.create)) throw nf();
+      return {
+        async getFile() { return new Blob([files[p]]); },
+        async createWritable() {
+          let buf = null;
+          return {
+            async write(b) { if (p === failOn) throw new Error('disk full'); buf = b; },
+            async close() { files[p] = Buffer.from(buf).toString(); },
+            async abort() {},
+          };
+        },
+      };
+    },
+    async removeEntry(name) { if (!(prefix + name in files)) throw nf(); delete files[prefix + name]; },
+    async queryPermission() { return 'granted'; },
+  });
+  return at('');
+}
+
+function releaseZip(version, files) {
+  const enc = (s) => new Uint8Array(Buffer.from(s));
+  const listing = { version, files: {} };
+  for (const [k, v] of Object.entries(files)) listing.files[k] = sha(v);
+  const entries = [{ name: 'almost-video-feedback/release-files.json', data: enc(JSON.stringify(listing)) }];
+  for (const [k, v] of Object.entries(files)) entries.push({ name: 'almost-video-feedback/' + k, data: enc(v) });
+  return { bytes: zip.buildZipBytes(entries), listing };
+}
+
+atest('self-update: run downloads, checks, writes every file and removes the one the release dropped', async () => {
+  const oldListing = { version: '0.10.12', files: { 'manifest.json': sha('{"version":"0.10.12"}'), 'src/a.js': sha('old a'), 'src/gone.js': sha('gone') } };
+  const folder = { 'manifest.json': '{"version":"0.10.12"}', 'src/a.js': 'old a', 'src/gone.js': 'gone', 'release-files.json': JSON.stringify(oldListing), 'notes.txt': 'mine' };
+  const rel = releaseZip('0.10.13', { 'manifest.json': '{"version":"0.10.13"}', 'src/a.js': 'new a', 'src/new/b.js': 'b' });
+  global.SCF_ZIP = zip;
+  global.fetch = async () => new Response(rel.bytes, { headers: { 'content-length': String(rel.bytes.length) } });
+  const seen = [];
+  try {
+    const r = await selfUpdate.run({ dir: memFolder(folder), zipUrl: 'z', version: '0.10.13', onProgress: (e) => seen.push(e.phase) });
+    assert.deepStrictEqual(r, { version: '0.10.13', written: 4, removed: 1 });
+    assert.deepStrictEqual(folder['src/a.js'], 'new a');
+    assert.deepStrictEqual(folder['src/new/b.js'], 'b');
+    assert.strictEqual(folder['manifest.json'], '{"version":"0.10.13"}');
+    assert.strictEqual(JSON.parse(folder['release-files.json']).version, '0.10.13');
+    assert.ok(!('src/gone.js' in folder), 'the dropped file is removed');
+    assert.strictEqual(folder['notes.txt'], 'mine', 'a file no release put there is left alone');
+    assert.deepStrictEqual([...new Set(seen)], ['download', 'check', 'write']);
+  } finally {
+    delete global.fetch;
+    delete global.SCF_ZIP;
+  }
+});
+
+atest('self-update: a tampered download writes nothing; a failed write puts the old files back', async () => {
+  const folder = { 'manifest.json': '{"version":"0.10.12"}', 'src/a.js': 'old a' };
+  const before = JSON.stringify(folder);
+  const rel = releaseZip('0.10.13', { 'manifest.json': '{"version":"0.10.13"}', 'src/a.js': 'new a', 'src/b.js': 'b' });
+  global.SCF_ZIP = zip;
+  try {
+    // same zip, one byte changed inside src/a.js ('new a' -> 'new b')
+    const bad = Uint8Array.from(rel.bytes);
+    const at = Buffer.from(bad).indexOf('new a');
+    bad[at + 4] = 'b'.charCodeAt(0);
+    global.fetch = async () => new Response(bad);
+    await assert.rejects(selfUpdate.run({ dir: memFolder(folder), zipUrl: 'z', version: '0.10.13' }), (e) => e.stage === 'check' && /src\/a\.js/.test(e.message));
+    assert.strictEqual(JSON.stringify(folder), before);
+
+    // writing stops at src/b.js (after src/a.js was already replaced)
+    global.fetch = async () => new Response(rel.bytes);
+    await assert.rejects(selfUpdate.run({ dir: memFolder(folder, 'src/b.js'), zipUrl: 'z', version: '0.10.13' }), (e) => e.stage === 'write' && e.path === 'src/b.js');
+    assert.strictEqual(JSON.stringify(folder), before);
+
+    global.fetch = async () => new Response('', { status: 404 });
+    await assert.rejects(selfUpdate.run({ dir: memFolder(folder), zipUrl: 'z', version: '0.10.13' }), (e) => e.stage === 'download' && /404/.test(e.message));
+  } finally {
+    delete global.fetch;
+    delete global.SCF_ZIP;
+  }
+});
+
+test('self-update: the progress bar moves forward through each phase', () => {
+  const t = (e) => selfUpdate.progressText(e, '0.10.13');
+  const pcts = [t({ phase: 'download', done: 50, total: 100 }), t({ phase: 'check' }), t({ phase: 'write', done: 10, total: 50 }), t({ phase: 'write', done: 50, total: 50 }), t({ phase: 'restart' })].map((x) => x.pct);
+  assert.deepStrictEqual(pcts, pcts.slice().sort((a, b) => a - b));
+  assert.strictEqual(t({ phase: 'write', done: 31, total: 49 }).label, 'Writing file 31 of 49…');
+  assert.strictEqual(t({ phase: 'restart' }).pct, 100);
+});
+
 (async () => {
   for (const t of asyncTests) {
     try {

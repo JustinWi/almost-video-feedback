@@ -114,10 +114,20 @@ Requires Chrome 116+.
 
 Chrome doesn't auto-update unpacked extensions, so the extension **checks once a day** for a new
 GitHub release (version tag only — no user data; disable in Settings → Updates). When one is out
-you'll see a green **↑** on the toolbar icon, a notification, and an **Update** button in the menu.
-Clicking any of them opens a guided page: download the zip, copy the contents of its
-`almost-video-feedback` folder over your extension folder (the one manual step Chrome requires), and hit **Reload** — one click, done. Running from a git
-clone instead? `git pull`: the menu's button turns into **⟳ Update now**, and that one click finishes it.
+you'll see a green **↑** on the toolbar icon, a notification, and the menu shows
+**v… is out** with two buttons:
+
+- **What's new** lists every version between yours and the newest, each with its main points
+  (scroll for more), plus a link to the releases on GitHub.
+- **Update** downloads the new version, checks every file against the release's own file list,
+  writes the files into your extension folder and restarts the extension. The menu reopens on
+  **✓ Updated to v…**. The very first time, a tab opens instead so you can pick the extension's
+  folder and click **Edit files** when Chrome asks (Chrome only lets an extension change a folder
+  you point it to). If anything fails, nothing is left half-changed and you stay on your version.
+
+Updating by hand still works: the update page also has the old steps (download the zip, copy its
+`almost-video-feedback` folder's contents over your extension folder, reload). Running from a git
+clone? `git pull`: the menu's button turns into **⟳ Update now**, and that one click finishes it.
 Once you're on the latest version the ↑, the menu button and the notice clear themselves.
 
 ## Microphone

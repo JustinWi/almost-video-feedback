@@ -158,11 +158,14 @@
       const ready = upd.kind === 'reload';
       $('update-text').textContent = ready
         ? folderMsg || 'v' + upd.version + ' is ready in your extension folder'
-        : 'v' + upd.version + ' is out — you have v' + chrome.runtime.getManifest().version;
-      $('update-go').textContent = ready ? '⟳ Update now' : 'How to update';
-      // reloading mid-save would lose the recording being written
-      $('update-go').disabled = ready && !!(state.saving || state.recording || state.busy || importBusy());
-      $('update-go').title = $('update-go').disabled ? 'Wait for the recording or import to finish' : '';
+        : 'v' + upd.version + ' is out. You have v' + chrome.runtime.getManifest().version + '.';
+      $('update-go').textContent = ready ? '⟳ Update now' : 'Update';
+      // reloading mid-save would lose the recording being written (the one-click update
+      // ends in a reload too); and nothing twice while an update is already running
+      const busyNow = !!(state.saving || state.recording || state.busy || importBusy());
+      $('update-go').disabled = busyNow || selfUpdating;
+      $('update-notes').disabled = selfUpdating;
+      $('update-go').title = busyNow ? 'Wait for the recording or import to finish' : '';
       // edited files, not a copy: Update now would only refuse again, so it waits (as on
       // the update page) and the quiet "Reload anyway" is the way past
       const anyway = ready && !!folderMsg && !!mismatch && mismatch.modified;
@@ -450,6 +453,7 @@
     // also on the early return below: the menu that opens after a save is where
     // click-to-record users find out the icon can open this menu instead
     loadClickHelp();
+    showSelfUpdateResult();
     const s = await send({ type: MSG.GET_STATE });
     if (s) {
       state.recording = s.recording;
@@ -586,11 +590,190 @@
     }
     chrome.runtime.reload(); // loads the new files from the folder; closes this popup
   }
+  // ---- one-click update: what's new, then download + check + write + restart ----
+  const su = self.SCF.selfUpdate;
+  const rn = self.SCF.releaseNotes;
+  const GIT_OK_KEY = 'selfUpdateGitOk'; // "Don't ask again" on the git-copy warning
+  const RELEASES_PAGE = 'https://github.com/JustinWi/almost-video-feedback/releases';
+  let selfUpdating = false;
+
+  let releasesPromise = null; // GitHub's release list, fetched once per menu
+  function fetchReleases() {
+    if (!releasesPromise) {
+      releasesPromise = (async () => {
+        const s = await self.SCF_CONFIG.load();
+        const url = rn.listUrl(s.updateCheckUrl || self.SCF_CONFIG.DEFAULTS.updateCheckUrl);
+        const r = await fetch(url, { headers: { accept: 'application/vnd.github+json' }, cache: 'no-store' });
+        if (!r.ok) throw new Error('GitHub answered ' + r.status);
+        return r.json();
+      })();
+      releasesPromise.catch(() => {
+        releasesPromise = null; // try again on the next click
+      });
+    }
+    return releasesPromise;
+  }
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function shortDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (e) {
+      return '';
+    }
+  }
+  function notesFooter(box) {
+    const f = el('div', 'notes-foot');
+    const a = el('button', 'link', 'See all releases on GitHub ↗');
+    a.addEventListener('click', () => chrome.tabs.create({ url: RELEASES_PAGE }));
+    f.appendChild(a);
+    box.appendChild(f);
+  }
+  // every version after `from`, up to `to`, newest first, each with its main points
+  async function fillNotes(box, from, to) {
+    box.replaceChildren(el('div', 'nv-none', 'Loading what changed…'));
+    let list;
+    try {
+      list = rn.notesBetween(await fetchReleases(), from, to);
+    } catch (e) {
+      box.replaceChildren(el('div', 'nv-none', "Couldn't load the release notes from GitHub. Check your internet connection."));
+      notesFooter(box);
+      return;
+    }
+    box.replaceChildren();
+    if (!list.length) box.appendChild(el('div', 'nv-none', 'No release notes found for these versions.'));
+    for (const n of list) {
+      const v = el('div', 'nv');
+      const h = el('div', 'nv-h');
+      h.appendChild(el('b', null, 'v' + n.version));
+      if (n.date) h.appendChild(el('span', null, shortDate(n.date)));
+      v.appendChild(h);
+      const ul = el('ul');
+      for (const p of n.points.length ? n.points : ['No details in this release.']) ul.appendChild(el('li', null, p));
+      v.appendChild(ul);
+      box.appendChild(v);
+    }
+    notesFooter(box);
+  }
+  function toggleNotes(btn, box, from, to) {
+    const open = box.hidden;
+    box.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = open ? "Hide what's new" : "What's new";
+    if (open) fillNotes(box, from, to);
+  }
+
+  function showUpdateMsg(text, isErr, withManual) {
+    const m = $('update-msg');
+    m.replaceChildren(el('span', null, text || ''));
+    m.classList.toggle('err', !!isErr);
+    m.hidden = !text;
+    if (withManual) {
+      const b = el('button', 'link', 'Update by hand instead');
+      b.addEventListener('click', () => openUpdatePage());
+      m.appendChild(b);
+    }
+  }
+  function openUpdatePage(hash) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') + (hash ? '#' + hash : '') });
+    window.close();
+  }
+  function setProgress(ev, version) {
+    const t = su.progressText(ev, version);
+    $('update-progress').hidden = false;
+    $('update-fill').style.width = t.pct + '%';
+    $('update-label').textContent = t.label;
+  }
+  async function busyNow() {
+    const s = await send({ type: MSG.GET_STATE });
+    return !!(s && (s.recording || s.saving || s.busy)) || importBusy();
+  }
+
+  async function startSelfUpdate(gitOk) {
+    const target = state.update && state.update.available;
+    if (!su || !target || !target.zipUrl) return openUpdatePage();
+    if (selfUpdating || (await busyNow())) return;
+    selfUpdating = true;
+    let restarting = false;
+    $('update-git').hidden = true;
+    showUpdateMsg('');
+    render();
+    try {
+      const dir = await su.loadFolder();
+      const f = dir ? await su.checkFolder(dir) : { ok: false, reason: 'none' };
+      // first time, a different folder, or Chrome wants its OK again: that happens on the
+      // update page, because Chrome's folder picker and permission box close this menu
+      if (!f.ok) return openUpdatePage('connect');
+      if (f.git && !gitOk) {
+        let remembered = false;
+        try {
+          remembered = !!(await chrome.storage.local.get(GIT_OK_KEY))[GIT_OK_KEY];
+        } catch (e) { /* ask */ }
+        if (!remembered) {
+          $('update-git').hidden = false;
+          return;
+        }
+      }
+      setProgress({ phase: 'download', done: 0, total: 0 }, target.version);
+      const r = await su.updateTo({ dir, target, isBusy: busyNow, onProgress: (ev) => setProgress(ev, target.version) });
+      if (r.ok) {
+        restarting = true; // this menu closes; the new version opens it again
+        return;
+      }
+      $('update-progress').hidden = true;
+      showUpdateMsg(r.message, !r.pending, !r.pending);
+    } finally {
+      if (!restarting) {
+        selfUpdating = false;
+        render();
+      }
+    }
+  }
+
+  // after a one-click update: "✓ Updated to vX" once; or what's left of one that didn't finish
+  async function showSelfUpdateResult() {
+    if (!su) return;
+    const s = await su.getState();
+    if (!s) return;
+    const cur = chrome.runtime.getManifest().version;
+    if ((s.state === 'installed' || s.state === 'done') && s.to === cur) {
+      $('updated-text').textContent = '✓ Updated to v' + cur + (s.from ? ' (you had v' + s.from + ')' : '');
+      $('updated-banner').hidden = false;
+      $('updated-notes').addEventListener('click', () => toggleNotes($('updated-notes'), $('updated-notes-box'), s.from || cur, cur));
+      su.setState(Object.assign({}, s, { state: 'seen' }));
+    } else if (s.to !== cur && Date.now() - (s.at || 0) > 15000) {
+      if (s.state === 'writing') {
+        showUpdateMsg('The last update to v' + s.to + " didn't finish (the menu was probably closed while it ran). Click Update to finish it.");
+      } else if (s.state === 'done') {
+        showUpdateMsg('v' + s.to + ' is already in your folder. Click Update now to switch to it.');
+      }
+    }
+  }
+
   $('update-go').addEventListener('click', () => {
     const upd = state.update && state.update.step;
     if (upd && upd.kind === 'reload') return updateNow(false);
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/update/update.html') });
-    window.close();
+    startSelfUpdate(false);
+  });
+  $('update-notes').addEventListener('click', () => {
+    const upd = state.update && state.update.step;
+    if (upd) toggleNotes($('update-notes'), $('update-notes-box'), chrome.runtime.getManifest().version, upd.version);
+  });
+  $('update-git-go').addEventListener('click', async () => {
+    if ($('update-git-remember').checked) {
+      try {
+        await chrome.storage.local.set({ [GIT_OK_KEY]: true });
+      } catch (e) { /* ask again next time */ }
+    }
+    $('update-git').hidden = true;
+    startSelfUpdate(true);
+  });
+  $('update-git-cancel').addEventListener('click', () => {
+    $('update-git').hidden = true;
   });
   $('update-anyway').addEventListener('click', () => updateNow(true));
 
