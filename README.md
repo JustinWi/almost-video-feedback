@@ -58,14 +58,16 @@ Start ▶  →  talk + point at things  →  Stop ⏹  →  paste into your agen
 - **Correlation**: everything is one timestamped timeline (speech, screenshots, navigations),
   persisted to IndexedDB as it happens. On stop, each spoken segment is attached to the nearest
   screenshot in time and the whole thing is rendered chronologically.
-- **Loom / YouTube import**: on a `loom.com/share/...` or `youtube.com/watch?v=...` page, clicking the
-  toolbar icon opens the popup; *Import this … video* turns the page's transcript + frames into the same
+- **Loom / YouTube / Vimeo import**: on a `loom.com/share/...`, `youtube.com/watch?v=...` or
+  `vimeo.com/<id>` page, clicking the toolbar icon opens the popup; *Import this … video* turns the page's transcript + frames into the same
   `feedback.md` bundle — no live recording needed. Keep the video tab in front while it imports.
   When YouTube plays an ad, the import pauses: once the ad's Skip button appears it is skipped, ads
   that can't be skipped play out muted, then frame-grabbing resumes where it stopped. The popup and
   `session.json` (`adBreaks`) say how many ads came up and how each was handled.
   On YouTube, tick **Reference video, not feedback** when the video is background material (a talk, a
   tutorial): `feedback.md` and the clipboard prompt then tell the AI to learn from it, not to act on it.
+  On Vimeo the transcript comes from the video's captions (the owner's own, or Vimeo's auto-generated
+  ones); a video with no captions has nothing to import.
   The tick is remembered. Imports also write `transcript.md` (one `[mm:ss] line` per segment), and every
   recording's transcript can be copied or downloaded from the Recordings page.
 

@@ -60,6 +60,7 @@
         "src/content/annotate.js",
         "src/content/loom-import.js",
         "src/content/youtube-import.js",
+        "src/content/vimeo-import.js",
         "src/content/content.js"
       ],
       "run_at": "document_idle",

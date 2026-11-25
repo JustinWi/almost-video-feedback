@@ -1,8 +1,8 @@
 /*
  * Video import capture (service worker). Classic script -> globalThis.SCF.loomCapture.
- * Named for Loom, where it started; it drives YouTube watch pages the same way.
+ * Named for Loom, where it started; it drives YouTube and Vimeo video pages the same way.
  *
- * Drives the video page (via LOOM_SEEK / YOUTUBE_SEEK messages to the content script) to each
+ * Drives the video page (via LOOM_SEEK / YOUTUBE_SEEK / VIMEO_SEEK messages to the content script) to each
  * target time, captures the visible tab, crops to the video rect, dedups, and
  * stores screenshot + transcript events on the same timeline the live recorder
  * uses. captureVisibleTab sees cross-origin video pixels (rendered output), so
@@ -26,6 +26,8 @@
   const SITES = {
     loom: { probe: MSG.LOOM_PROBE, seek: MSG.LOOM_SEEK, seekTimeoutMs: 6000, probeTimeoutMs: 12000, fallbackTitle: 'Loom video', adCheck: false },
     youtube: { probe: MSG.YOUTUBE_PROBE, seek: MSG.YOUTUBE_SEEK, seekTimeoutMs: 210000, fallbackTitle: 'YouTube video', adCheck: true },
+    // the probe waits up to 8 s for the player's caption tracks, then fetches the caption file
+    vimeo: { probe: MSG.VIMEO_PROBE, seek: MSG.VIMEO_SEEK, seekTimeoutMs: 12000, probeTimeoutMs: 25000, fallbackTitle: 'Vimeo video', adCheck: false },
   };
   const AD_RETAKES = 3; // per target, frames thrown away because an ad started mid-grab
 
@@ -75,7 +77,7 @@
 
   /**
    * @param {{tabId:number, windowId:number, startedAt:number, settings:object,
-   *          dir:string, store:object, kind?:'loom'|'youtube', onProgress?:function}} a
+   *          dir:string, store:object, kind?:'loom'|'youtube'|'vimeo', onProgress?:function}} a
    * @returns {Promise<{frames:number, segments:number, title?:string, url?:string, lastMs?:number, error?:string}>}
    */
   async function runImport(a) {

@@ -52,9 +52,9 @@ function capturable(url) {
     !/^https?:\/\/(chrome\.google\.com\/webstore|chromewebstore\.google\.com)/i.test(url);
 }
 
-// A loom.com/share/... or YouTube watch page — where clicking the toolbar icon should
+// A loom.com/share/..., YouTube watch or vimeo.com/<id> page — where clicking the toolbar icon should
 // open the popup (Start recording vs. Import this video) instead of auto-recording.
-// Returns { kind: 'loom'|'youtube', label } or null.
+// Returns { kind: 'loom'|'youtube'|'vimeo', label } or null.
 function importableSource(url) {
   return self.SCF.videoSource.sourceForUrl(url);
 }
@@ -186,7 +186,7 @@ function openPopup() {
 // Click-to-record: when the setting is on and we're idle, clear the action popup
 // so a click fires chrome.action.onClicked (which starts recording immediately).
 // While recording (or when the setting is off) the popup is restored, so a click
-// opens it as usual. Exception: on a Loom share or YouTube watch page we always keep the
+// opens it as usual. Exception: on a Loom share, YouTube watch or Vimeo video page we always keep the
 // popup so the click offers a choice (Start recording vs. Import this video) —
 // auto-recording there would force the user to record-then-discard before they could import.
 async function applyActionMode() {
@@ -535,9 +535,9 @@ let importing = false;
 // Human-readable reasons an import stopped, shown in the popup's error banner.
 function importErrorText(code, label) {
   if (code === 'no-transcript') {
-    return label === 'YouTube'
-      ? 'This YouTube video has no transcript (its owner turned captions off), so there is nothing to import.'
-      : 'This ' + label + ' video has no transcript to import.';
+    if (label === 'YouTube') return 'This YouTube video has no transcript (its owner turned captions off), so there is nothing to import.';
+    if (label === 'Vimeo') return 'This Vimeo video has no captions (its owner hasn\'t added any or turned off auto-generated ones), so there is nothing to import.';
+    return 'This ' + label + ' video has no transcript to import.';
   }
   if (code === 'ad-stuck') return 'An ad never finished, so the import stopped. Skip or finish the ad on the YouTube tab, then import again.';
   if (code === 'no-frames') return 'Couldn\'t grab any frames. Keep the ' + label + ' tab in front, in a window that isn\'t minimized, while it imports.';
@@ -570,7 +570,7 @@ async function importVideo(requestedTabId, opts) {
     purpose, source: { kind: src.kind, url: tab.url, title: tab.title || null },
   });
 
-  await ensureContentScript(tab.id); // make sure the page bridge (loom-/youtube-import.js) is present
+  await ensureContentScript(tab.id); // make sure the page bridge (loom-/youtube-/vimeo-import.js) is present
   let res;
   try {
     res = await self.SCF.loomCapture.runImport({
@@ -748,7 +748,7 @@ async function followFocus() {
 
 chrome.tabs.onActivated.addListener(() => {
   scheduleFollowFocus();
-  applyActionMode(); // a Loom / YouTube video tab forces the popup; others fall back to click-to-record
+  applyActionMode(); // a Loom / YouTube / Vimeo video tab forces the popup; others fall back to click-to-record
 });
 chrome.windows.onFocusChanged.addListener((winId) => {
   if (winId !== chrome.windows.WINDOW_ID_NONE) {
@@ -756,7 +756,7 @@ chrome.windows.onFocusChanged.addListener((winId) => {
     applyActionMode();
   }
 });
-// the focused tab navigating into/out of a Loom / YouTube video URL also changes the action mode
+// the focused tab navigating into/out of a Loom / YouTube / Vimeo video URL also changes the action mode
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyActionMode();
 });

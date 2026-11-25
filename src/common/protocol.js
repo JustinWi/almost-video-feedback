@@ -71,7 +71,7 @@
     COPY_TO_CLIPBOARD: 'copy_to_clipboard',
     KEEPALIVE: 'keepalive',
 
-    // popup -> service worker: import a Loom / YouTube video into a bundle
+    // popup -> service worker: import a Loom / YouTube / Vimeo video into a bundle
     // ({ tabId, reference } — reference: true marks it as reference material, not feedback)
     IMPORT_VIDEO: 'import_video',
     // service worker <-> content (Loom page): scrape transcript / seek player
@@ -80,6 +80,9 @@
     // service worker <-> content (YouTube watch page): same contract as the Loom pair
     YOUTUBE_PROBE: 'youtube_probe',
     YOUTUBE_SEEK: 'youtube_seek',
+    // service worker <-> content (Vimeo video page): same contract as the Loom pair
+    VIMEO_PROBE: 'vimeo_probe',
+    VIMEO_SEEK: 'vimeo_seek',
     // service worker -> popup: import progress ticks
     IMPORT_PROGRESS: 'import_progress',
   };
@@ -97,7 +100,7 @@
     HEARTBEAT: 'heartbeat',
     FORCED: 'forced',
     ANNOTATE: 'annotate',
-    FRAME: 'frame', // a frame grabbed from an imported video (Loom / YouTube import)
+    FRAME: 'frame', // a frame grabbed from an imported video (Loom / YouTube / Vimeo import)
   };
 
   // Priority triggers bypass the dedup cull: deliberate, high-intent actions the

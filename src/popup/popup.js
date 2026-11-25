@@ -12,7 +12,7 @@
   let mismatch = null; // folderCheck.track() state while this popup is open
   let folderMsg = ''; // why Update now was refused; kept over re-renders until the folder matches
   let folderTimer = null;
-  let videoTab = null; // the active tab if it holds an importable video (Loom share / YouTube watch)
+  let videoTab = null; // the active tab if it holds an importable video (Loom share / YouTube watch / Vimeo video)
   let videoSrc = null; // { kind, label } for videoTab
   let lastProgress = { done: 0, total: 0 }; // last capture tick, so an ad pause keeps the bar in place
   // Drive the import progress bar. `total === 0` shows an empty bar (e.g. while the
@@ -218,7 +218,7 @@
     const idle = !state.recording && !state.saving;
     $('hotkey-hint').hidden = !(idle && hotkey);
     if (hotkey) $('hotkey-key').textContent = hotkey;
-    // on a Loom / YouTube page the icon always opens this menu, so "starts a recording" would be wrong here
+    // on a Loom / YouTube / Vimeo page the icon always opens this menu, so "starts a recording" would be wrong here
     const show = idle && clickStarts !== null && !(clickStarts && videoTab);
     $('click-mode').hidden = !show;
     if (show) {

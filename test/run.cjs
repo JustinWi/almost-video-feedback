@@ -339,6 +339,59 @@ test('video-source: Loom share pages still detected, other pages are not', () =>
   assert.strictEqual(videoSource.sourceForUrl(null), null);
 });
 
+test('video-source: recognises Vimeo video pages', () => {
+  const v = videoSource.sourceForUrl('https://vimeo.com/1249864138');
+  assert.strictEqual(v.kind, 'vimeo');
+  assert.strictEqual(v.label, 'Vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://www.vimeo.com/1249864138/').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/1249864138/3f9a1b2c4d').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/1249864138?share=copy#t=30').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/channels/staffpicks/76979871').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/groups/motion/videos/76979871').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/showcase/123456/video/76979871').kind, 'vimeo');
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/album/123456/video/76979871').kind, 'vimeo');
+});
+
+test('video-source: Vimeo pages without a single video are not importable', () => {
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/watch'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/someuser'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/channels/staffpicks'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/showcase/123456'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://vimeo.com/manage/videos'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://player.vimeo.com/video/1249864138'), null);
+  assert.strictEqual(videoSource.sourceForUrl('https://notvimeo.com/1249864138'), null);
+});
+
+test('video-source: parseVtt reads cue starts and words, skipping header, notes and ids', () => {
+  const vtt = '\uFEFFWEBVTT\r\nKind: captions\r\n\r\nNOTE made by a machine\r\n\r\n'
+    + '1\r\n00:00:00.900 --> 00:00:03.690 align:start\r\nHi, Justin. Thanks for\r\ntaking the time.\r\n\r\n'
+    + '00:04.230 --> 00:06.120\r\n<v Bot>I\'ll make sure &amp; <c.red>listen</c>.</v>\r\n\r\n'
+    + '01:02:03.5 --> 01:02:04.000\r\nLate line\r\n\r\n'
+    + 'bad --> 00:00:01.000\r\nignored\r\n';
+  assert.deepStrictEqual(videoSource.parseVtt(vtt), [
+    { ms: 900, text: 'Hi, Justin. Thanks for taking the time.' },
+    { ms: 4230, text: 'I\'ll make sure & listen.' },
+    { ms: 3723500, text: 'Late line' },
+  ]);
+  assert.deepStrictEqual(videoSource.parseVtt(''), []);
+  assert.deepStrictEqual(videoSource.parseVtt(null), []);
+});
+
+test('video-source: pickCaptionTrack prefers default, then hand-made over auto in the same language', () => {
+  const auto = { kind: 'subtitles', label: 'English (auto-generated)', language: 'en-x-autogen' };
+  const en = { kind: 'subtitles', label: 'English', language: 'en' };
+  const fr = { kind: 'subtitles', label: 'Français', language: 'fr' };
+  assert.strictEqual(videoSource.pickCaptionTrack([auto]), 0);
+  assert.strictEqual(videoSource.pickCaptionTrack([fr, auto]), 1, 'a translation does not beat the spoken language');
+  assert.strictEqual(videoSource.pickCaptionTrack([auto, fr, en]), 2);
+  assert.strictEqual(videoSource.pickCaptionTrack([auto, Object.assign({ default: true }, fr)]), 1);
+  assert.strictEqual(videoSource.pickCaptionTrack([fr, en]), 0);
+  assert.strictEqual(videoSource.pickCaptionTrack([{ kind: 'chapters', label: 'Chapters' }]), -1);
+  assert.strictEqual(videoSource.pickCaptionTrack([]), -1);
+  assert.strictEqual(videoSource.pickCaptionTrack(null), -1);
+});
+
 test('video-source: cleanSegments sorts, de-dups, tidies, and drops punctuation-only lines', () => {
   const out = videoSource.cleanSegments([
     { ms: 15000, text: '  - Thank   you. ' },
